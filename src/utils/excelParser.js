@@ -176,13 +176,278 @@ function parseDate(val) {
   return dateStr;
 }
 
+// Report template definitions matching result.xlsx
+const REPORT_TEMPLATE = [
+  { row: 1, type: "static", cells: { A: "호텔 월 정산" } },
+  { row: 4, type: "static", cells: { A: "목차", C: "금액", G: "비고" } },
+  { row: 5, type: "total_revenue", cells: { A: "총 매출액" } },
+  { row: 7, type: "salary", cells: { A: "총 급여" } },
+  { row: 9, type: "formula", formula: "SUM(C7)", cells: { A: "총 급여" } },
+  { row: 11, type: "expense", keyword: "코원에너지", cells: { A: "가스요금", G: "코원에너지" } },
+  { row: 13, type: "expense", keyword: "맑은물관리사업소", cells: { A: "수도요금", G: "맑은물관리사업소" } },
+  { row: 15, type: "expense", keyword: "한전㈜카인드", cells: { A: "전기요금", G: "한전㈜카인드" } },
+  { row: 17, type: "expense", keyword: "한국지역난방공사", cells: { A: "지역난방요금", G: "한국지역난방공사" } },
+  { row: 19, type: "formula", formula: "SUM(C11:F18)", cells: { A: "공과금" } },
+  { row: 21, type: "expense", keyword: "수협카드대금", cells: { A: "지출카드(수협)", G: "수협카드대금" } },
+  { row: 23, type: "formula", formula: "SUM(C21)", cells: { A: "지출카드 " } },
+  { row: 25, type: "expense", keyword: "㈜놀유니버스", cells: { A: "야놀자", G: "㈜놀유니버스" } },
+  { row: 27, type: "expense", keyword: "㈜여기어때", cells: { A: "여기어때", G: "㈜여기어때" } },
+  { row: 29, type: "expense", keyword: "서병주(잠자리컴퍼니)", cells: { A: "잠자리", G: "서병주(잠자리컴퍼니)" } },
+  { row: 31, type: "formula", formula: "SUM(C25:F30)", cells: { A: "광고비" } },
+  { row: 33, type: "expense", keyword: "김옥희", cells: { A: "세탁비", G: "김옥희" } },
+  { row: 35, type: "expense", keyword: "㈜에이치투오솔", cells: { A: "객실 세탁비", G: "㈜에이치투오솔" } },
+  { row: 37, type: "expense", keyword: "㈜아나한별유통", cells: { A: "비품비", G: "㈜아나한별유통" } },
+  { row: 39, type: "expense", keyword: "고려유통", cells: { A: "식자재", G: "고려유통" } },
+  { row: 41, type: "expense", keyword: "유림기업", cells: { A: "음식물쓰레기", G: "유림기업" } },
+  { row: 43, type: "expense", keyword: "지앤씨바이오", cells: { A: "소독비", G: "지앤씨바이오" } },
+  { row: 45, type: "expense", keyword: "㈜하이엠솔루텍", cells: { A: "에어컨 F.M", G: "㈜하이엠솔루텍" } },
+  { row: 47, type: "expense", keyword: "현대엘레베이터", cells: { A: "엘리베이터 F.M", G: "현대엘레베이터" } },
+  { row: 49, type: "expense", keyword: "현대엘레베이터", cells: { A: "카리프트 F.M", G: "현대엘레베이터" } },
+  { row: 51, type: "expense", keyword: "이희윤", cells: { A: "매트세척비", G: "이희윤" } },
+  { row: 53, type: "expense", keyword: "아하소프트", cells: { A: "벤사", G: "아하소프트" } },
+  { row: 55, type: "expense", keyword: "산하정보기술", cells: { A: "산하정보기술", G: "산하정보기술" } },
+  { row: 57, type: "expense", keyword: "노무법인신아", cells: { A: "노무법인 신아", G: "노무법인신아" } },
+  { row: 59, type: "expense", keyword: "최종현(최종현세무회계)", cells: { A: "세무법인 최종현", G: "최종현(최종현세무회계)" } },
+  { row: 61, type: "expense", keyword: "㈜에스원", cells: { A: "에스원", G: "㈜에스원" } },
+  { row: 63, type: "expense", keyword: "KT", cells: { A: "KT(전화)", G: "KT" } },
+  { row: 65, type: "expense", keyword: "KT통신요금", cells: { A: "KT(인터넷)", G: "KT통신요금" } },
+  { row: 67, type: "expense", keyword: "카피올", cells: { A: "복사기", G: "카피올" } },
+  { row: 69, type: "expense", keyword: "한화손해보험", cells: { A: "손해보험", G: "한화손해보험" } },
+  { row: 71, type: "expense", keyword: "㈜에바센트", cells: { A: "향기마케팅", G: "㈜에바센트" } },
+  { row: 73, type: "expense", keyword: "도솔방재", cells: { A: "도솔소방방재", G: "도솔방재" } },
+  { row: 75, type: "expense", keyword: "한빛전기", cells: { A: "전기관리", G: "한빛전기" } },
+  { row: 77, type: "expense", keyword: "㈜엑세스", cells: { A: "객실 OTT", G: "㈜엑세스" } },
+  { row: 79, type: "expense", keyword: "㈜주안운수", cells: { A: "셔틀버스 서비스", G: "㈜주안운수" } },
+  { row: 81, type: "formula", formula: "SUM(C33:F80)", cells: { A: "지출" } },
+  { row: 83, type: "expense", keyword: "홍현기", cells: { A: "생수텍", G: "홍현기" } },
+  { row: 85, type: "expense", keyword: "홍현기", cells: { A: "객실카드홀더", G: "홍현기" } },
+  { row: 87, type: "expense", keyword: "황영주", cells: { A: "카드키 단말기", G: "황영주" } },
+  { row: 89, type: "expense", keyword: "이순이", cells: { A: "식자재", G: "이순이" } },
+  { row: 91, type: "expense", keyword: "㈜장안주류판매", cells: { A: "디너 소주/맥주", G: "㈜장안주류판매" } },
+  { row: 93, type: "expense", keyword: "이순이", cells: { A: "식자재", G: "이순이" } },
+  { row: 95, type: "formula", formula: "SUM(C83:F94)", cells: { A: "기타잡비" } }
+];
+
+// Helper to clean descriptions/keywords for matching
+function normalizeText(str) {
+  if (!str) return '';
+  return str.replace(/[^a-zA-Z0-9가-힣]/g, '');
+}
+
+// Check if a transaction description matches a keyword
+function checkKeywordMatch(desc, keyword) {
+  const normDesc = normalizeText(desc);
+  const normKw = normalizeText(keyword);
+  
+  if (normKw === '한전카인드') {
+    return normDesc.includes('한전');
+  }
+  if (normKw === '에스원') {
+    return normDesc.includes('s1') || normDesc.includes('에스원');
+  }
+  if (normKw === '한화손해보험') {
+    return normDesc.includes('한화손');
+  }
+  if (normKw === '도솔방재') {
+    return normDesc.includes('도솔');
+  }
+  if (normKw === '한빛전기') {
+    return normDesc.includes('한빛');
+  }
+  if (normKw === '서병주잠자리컴퍼니') {
+    return normDesc.includes('서병주') || normDesc.includes('잠자리');
+  }
+  if (normKw === '코원에너지') {
+    return normDesc.includes('코원');
+  }
+  if (normKw === '맑은물관리사업소') {
+    return normDesc.includes('맑은물');
+  }
+  if (normKw === '한국지역난방공사') {
+    return normDesc.includes('난방');
+  }
+  if (normKw === '수협카드대금') {
+    return normDesc.includes('수협카드');
+  }
+  if (normKw === '놀유니버스') {
+    return normDesc.includes('놀유니버스');
+  }
+  if (normKw === '여기어때') {
+    return normDesc.includes('여기어때컴퍼') || normDesc === '여기어때';
+  }
+  if (normKw === '에이치투오솔') {
+    return normDesc.includes('에이치투오');
+  }
+  if (normKw === '아나한별유통') {
+    return normDesc.includes('아나한별');
+  }
+  if (normKw === '유림기업') {
+    return normDesc.includes('유림');
+  }
+  if (normKw === '하이엠솔루텍') {
+    return normDesc.includes('하이엠');
+  }
+  if (normKw === '현대엘레베이터') {
+    return normDesc.includes('현대엘');
+  }
+  if (normKw === '아하소프트') {
+    return normDesc.includes('아하소프트');
+  }
+  if (normKw === '산하정보기술') {
+    return normDesc.includes('산하');
+  }
+  if (normKw === '노무법인신아') {
+    return normDesc.includes('신아');
+  }
+  if (normKw === '최종현최종현세무회계') {
+    return normDesc.includes('최종현');
+  }
+  
+  return normDesc.includes(normKw) || normKw.includes(normDesc);
+}
+
 /**
- * Export standardized data array back to Excel file
+ * Export standardized data array back to Excel file (Summary report + Detail list)
  * @param {Array} transactions 
  * @param {object} rules 
  * @returns {ArrayBuffer} 
  */
 export function exportToExcel(transactions, rules) {
+  // --- 1. SHEET 1: 호텔 월 정산 (Summary Report) ---
+  const worksheetReport = {};
+  const maxRow = 96;
+  const maxCol = 8; // Column I (index 8)
+  
+  // Initialize grid with blank strings
+  for (let r = 0; r < maxRow; r++) {
+    for (let c = 0; c <= maxCol; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r, c });
+      worksheetReport[cellRef] = { t: 's', v: '' };
+    }
+  }
+  
+  const cValues = {};
+  
+  // A. Build static and raw data cells
+  REPORT_TEMPLATE.forEach(item => {
+    const rIdx = item.row - 1;
+    
+    Object.entries(item.cells).forEach(([colLetter, val]) => {
+      const cIdx = colLetter.charCodeAt(0) - 65;
+      const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: cIdx });
+      worksheetReport[cellRef] = {
+        t: typeof val === 'number' ? 'n' : 's',
+        v: val
+      };
+    });
+    
+    // Fill calculated values in Column C
+    if (item.type === 'total_revenue') {
+      const totalDeposits = transactions.reduce((sum, tx) => sum + tx.deposit, 0);
+      const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: 2 });
+      worksheetReport[cellRef] = { t: 'n', v: totalDeposits };
+      cValues[item.row] = totalDeposits;
+    }
+    
+    else if (item.type === 'salary') {
+      const vendorKeywords = [
+        '코원', '맑은물', '한전', '난방', '수협', '놀유니버스', '여기어때', '잠자리', 
+        '에이치투오', '아나한별', '유림', '하이엠', '현대엘', '이희윤', '아하소프트', 
+        '산하', '신아', '카피올', '에바센트', '도솔', '한빛전기', '엑세스', '주안운수', 
+        '홍현기', '황영주', '이순이', '장안주류', '한화손'
+      ];
+      
+      const salarySum = transactions
+        .filter(tx => {
+          const desc = tx.description;
+          const isNamePattern = /^\d{3}[가-힣]{2,4}$/.test(desc) || /^\d{3}[가-힣]{2,4}\(/.test(desc);
+          const isVendor = vendorKeywords.some(kw => desc.includes(kw));
+          return isNamePattern && !isVendor && tx.withdrawal > 0;
+        })
+        .reduce((sum, tx) => sum + tx.withdrawal, 0);
+        
+      const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: 2 });
+      worksheetReport[cellRef] = { t: 'n', v: salarySum };
+      cValues[item.row] = salarySum;
+    }
+    
+    else if (item.type === 'expense') {
+      const keyword = item.keyword;
+      let expenseSum = 0;
+      
+      if (keyword === '현대엘레베이터' && item.cells['A'] === '엘리베이터 F.M') {
+        expenseSum = transactions
+          .filter(tx => checkKeywordMatch(tx.description, keyword) && tx.withdrawal === 726000)
+          .reduce((sum, tx) => sum + tx.withdrawal, 0);
+      } else if (keyword === '현대엘레베이터' && item.cells['A'] === '카리프트 F.M') {
+        expenseSum = transactions
+          .filter(tx => checkKeywordMatch(tx.description, keyword) && tx.withdrawal !== 726000)
+          .reduce((sum, tx) => sum + tx.withdrawal, 0);
+      } else if (keyword === 'KT' && item.cells['A'] === 'KT(전화)') {
+        expenseSum = transactions
+          .filter(tx => checkKeywordMatch(tx.description, keyword) && tx.withdrawal < 100000)
+          .reduce((sum, tx) => sum + tx.withdrawal, 0);
+      } else if (keyword === 'KT통신요금' && item.cells['A'] === 'KT(인터넷)') {
+        expenseSum = transactions
+          .filter(tx => checkKeywordMatch(tx.description, keyword))
+          .reduce((sum, tx) => sum + tx.withdrawal, 0);
+      } else {
+        expenseSum = transactions
+          .filter(tx => checkKeywordMatch(tx.description, keyword))
+          .reduce((sum, tx) => sum + tx.withdrawal, 0);
+      }
+      
+      const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: 2 });
+      worksheetReport[cellRef] = { t: 'n', v: expenseSum };
+      cValues[item.row] = expenseSum;
+    }
+  });
+  
+  // B. Process formula evaluation
+  REPORT_TEMPLATE.forEach(item => {
+    if (item.type === 'formula') {
+      const rIdx = item.row - 1;
+      const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: 2 });
+      
+      let sumValue = 0;
+      if (item.formula === 'SUM(C7)') {
+        sumValue = cValues[7] || 0;
+      } else if (item.formula === 'SUM(C11:F18)') {
+        for (let i = 11; i <= 18; i++) sumValue += cValues[i] || 0;
+      } else if (item.formula === 'SUM(C21)') {
+        sumValue = cValues[21] || 0;
+      } else if (item.formula === 'SUM(C25:F30)') {
+        for (let i = 25; i <= 30; i++) sumValue += cValues[i] || 0;
+      } else if (item.formula === 'SUM(C33:F80)') {
+        for (let i = 33; i <= 80; i++) sumValue += cValues[i] || 0;
+      } else if (item.formula === 'SUM(C83:F94)') {
+        for (let i = 83; i <= 94; i++) sumValue += cValues[i] || 0;
+      }
+      
+      worksheetReport[cellRef] = {
+        t: 'n',
+        v: sumValue,
+        f: item.formula
+      };
+      cValues[item.row] = sumValue;
+    }
+  });
+  
+  // Set bounds and Column Widths for Sheet 1
+  worksheetReport['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxRow - 1, c: maxCol } });
+  worksheetReport['!cols'] = [
+    { wch: 18 }, // A: 목차
+    { wch: 4 },  // B: (공백)
+    { wch: 15 }, // C: 금액
+    { wch: 4 },  // D: (공백)
+    { wch: 4 },  // E: (공백)
+    { wch: 4 },  // F: (공백)
+    { wch: 25 }, // G: 비고
+    { wch: 8 },  // H: (공백)
+    { wch: 8 }   // I: (공백)
+  ];
+  
+  // --- 2. SHEET 2: 상세 거래 내역 (Detail Classified List) ---
   const exportData = transactions.map((tx, idx) => ({
     '번호': idx + 1,
     '거래일시': tx.date,
@@ -193,10 +458,8 @@ export function exportToExcel(transactions, rules) {
     '잔액': tx.balance || 0
   }));
   
-  const worksheet = XLSX.utils.json_to_sheet(exportData);
-  
-  // Auto fit columns
-  const colWidths = [
+  const worksheetDetails = XLSX.utils.json_to_sheet(exportData);
+  worksheetDetails['!cols'] = [
     { wch: 6 },  // 번호
     { wch: 20 }, // 거래일시
     { wch: 25 }, // 거래처/적요
@@ -205,11 +468,13 @@ export function exportToExcel(transactions, rules) {
     { wch: 15 }, // 입금액
     { wch: 15 }  // 잔액
   ];
-  worksheet['!cols'] = colWidths;
   
+  // --- 3. Assemble Workbook ---
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, '정리된 거래 내역');
+  XLSX.utils.book_append_sheet(workbook, worksheetReport, '호텔 월 정산');
+  XLSX.utils.book_append_sheet(workbook, worksheetDetails, '상세 거래 내역');
   
   const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
   return excelBuffer;
 }
+
