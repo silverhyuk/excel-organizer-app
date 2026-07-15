@@ -528,3 +528,124 @@ input:focus, select:focus {
   height: 48px;
   color: var(--text-muted);
 }
+
+/* --- Easter Egg: Bald Dancer CSS --- */
+.easter-egg-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(5, 5, 10, 0.85);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: disco-bg-pulse 8s infinite alternate;
+}
+
+.easter-egg-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  text-align: center;
+}
+
+.dancer-container {
+  position: relative;
+  width: 320px;
+  height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dancing-bald-man {
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  box-shadow: 0 0 40px rgba(139, 92, 246, 0.6), 0 0 80px rgba(6, 182, 212, 0.4);
+  animation: bounce-dance 0.5s infinite alternate ease-in-out, spin-dance 4s infinite linear;
+  border: 4px solid var(--border-glass-active);
+  object-fit: cover;
+}
+
+.disco-title {
+  font-size: 2.5rem;
+  font-weight: 800;
+  letter-spacing: -1px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #f43f5e, #8b5cf6, #3b82f6, #06b6d4, #f43f5e);
+  background-size: 400% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: rainbow-text 4s linear infinite;
+  text-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+}
+
+.disco-subtitle {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.5rem 1.5rem;
+  border-radius: 30px;
+  border: 1px solid var(--border-glass);
+  animation: pulse-opacity 1.5s infinite alternate;
+}
+
+/* Keyframes for Easter Egg animations */
+@keyframes bounce-dance {
+  0% {
+    transform: translateY(0) scale(1) rotate(-5deg);
+  }
+  100% {
+    transform: translateY(-25px) scale(1.03) rotate(5deg);
+  }
+}
+
+@keyframes spin-dance {
+  0% {
+    box-shadow: 0 0 30px rgba(139, 92, 246, 0.5), 0 0 60px rgba(6, 182, 212, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 50px rgba(244, 63, 94, 0.7), 0 0 100px rgba(245, 158, 11, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 30px rgba(139, 92, 246, 0.5), 0 0 60px rgba(6, 182, 212, 0.3);
+  }
+}
+
+@keyframes rainbow-text {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 400% 50%;
+  }
+}
+
+@keyframes pulse-opacity {
+  0% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes disco-bg-pulse {
+  0% {
+    background: rgba(5, 5, 10, 0.85);
+  }
+  50% {
+    background: rgba(20, 10, 30, 0.9);
+  }
+  100% {
+    background: rgba(5, 20, 25, 0.85);
+  }
+}
+

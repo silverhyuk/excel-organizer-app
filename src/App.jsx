@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { parseExcelTransactions, exportToExcel } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
+import baldDancerImg from './assets/bald_dancer.jpg';
 
 function App() {
   const [transactions, setTransactions] = useState([]);
@@ -27,10 +28,24 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [showEasterEgg, setShowEasterEgg] = useState(false);
 
   // Editing Rule State
   const [editingCategoryKey, setEditingCategoryKey] = useState('hotel');
   const [newKeyword, setNewKeyword] = useState('');
+
+  // Listen for the Escape key to toggle the easter egg
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setShowEasterEgg(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Re-classify all transactions when rules change or new transactions load
   useEffect(() => {
@@ -590,6 +605,23 @@ function App() {
                 설정 완료
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Easter Egg Overlay */}
+      {showEasterEgg && (
+        <div className="easter-egg-overlay" onClick={() => setShowEasterEgg(false)}>
+          <div className="easter-egg-content" onClick={(e) => e.stopPropagation()}>
+            <h1 className="disco-title">빡빡이 댄스 타임! 🕺</h1>
+            <div className="dancer-container">
+              <img 
+                src={baldDancerImg} 
+                alt="Dancing Bald Man" 
+                className="dancing-bald-man"
+              />
+            </div>
+            <p className="disco-subtitle">ESC를 다시 누르거나 화면을 클릭하여 돌아가기</p>
           </div>
         </div>
       )}
