@@ -273,6 +273,8 @@ function App() {
     .filter(tx => selectedCategory === 'all' || tx.category === selectedCategory)
     .reduce((sum, tx) => sum + tx.deposit, 0);
 
+  const selectedTotal = selectedCategory === 'income' ? totalDeposit : totalWithdrawal;
+
   // Overall sums (independent of selectedCategory for summary cards)
   const grandWithdrawal = transactions.reduce((sum, tx) => sum + tx.withdrawal, 0);
   const grandDeposit = transactions.reduce((sum, tx) => sum + tx.deposit, 0);
@@ -293,10 +295,12 @@ function App() {
 
   // Calculate percentages for statistics chart
   const categoryStats = Object.keys(rules).map(key => {
+    const isIncome = key === 'income';
     const sum = transactions
       .filter(tx => tx.category === key)
-      .reduce((sum, tx) => sum + tx.withdrawal, 0);
-    const pct = grandWithdrawal > 0 ? (sum / grandWithdrawal) * 100 : 0;
+      .reduce((sum, tx) => sum + (isIncome ? tx.deposit : tx.withdrawal), 0);
+    const total = isIncome ? grandDeposit : grandWithdrawal;
+    const pct = total > 0 ? (sum / total) * 100 : 0;
     return {
       key,
       name: rules[key].name,
@@ -407,13 +411,13 @@ function App() {
 
             <div className="glass-panel stat-card">
               <div className="stat-header">
-                <span>순 지출 흐름</span>
+                <span>순 현금흐름</span>
                 <DollarSign size={18} style={{ color: 'var(--accent-cyan)' }} />
               </div>
               <div className="stat-val net">
-                ₩{(grandWithdrawal - grandDeposit).toLocaleString()}
+                ₩{(grandDeposit - grandWithdrawal).toLocaleString()}
               </div>
-              <div className="stat-footer">총 지출액 - 총 수입액</div>
+              <div className="stat-footer">총 수입액 - 총 지출액</div>
             </div>
           </div>
 
@@ -423,7 +427,7 @@ function App() {
             {/* Sidebar Column: Categories List & Rules Toggle */}
             <div className="glass-panel sidebar-panel">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>지출 카테고리</h3>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>거래 카테고리</h3>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button
                     className="secondary"
@@ -472,7 +476,7 @@ function App() {
               {/* Custom SVG Mini Progress Bars Chart */}
               <div className="custom-chart-container" style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '1.25rem', marginTop: '0.5rem' }}>
                 <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>지출 점유율</span>
-                {categoryStats.filter(stat => stat.amount > 0).map(stat => (
+                {categoryStats.filter(stat => stat.key !== 'income' && stat.amount > 0).map(stat => (
                   <div key={stat.key} className="chart-bar-row">
                     <div className="chart-bar-info">
                       <span>{stat.name}</span>
@@ -504,7 +508,7 @@ function App() {
                   </span>
                   {selectedCategory !== 'all' && (
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      선택된 지출 합계: <strong style={{ color: 'var(--text-primary)' }}>₩{totalWithdrawal.toLocaleString()}</strong>
+                      선택된 {selectedCategory === 'income' ? '입금' : '지출'} 합계: <strong style={{ color: 'var(--text-primary)' }}>₩{selectedTotal.toLocaleString()}</strong>
                     </span>
                   )}
                 </div>
