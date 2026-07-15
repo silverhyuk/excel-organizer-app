@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 const COLUMN_MAPPINGS = {
   date: ['거래일시', '거래일자', '일자', '날짜', '일시', '일자시간', '거래일', 'date', 'datetime'],
   description: ['적요', '내용', '거래내용', '기재내용', '가맹점명', '수신인', '보낸분/받는분', '거래처', 'description', 'memo', 'payee'],
-  withdrawal: ['출금액', '출금금액', '찾으신금액', '지출', '지급액', '지급', 'withdrawal', 'out', 'expense'],
+  withdrawal: ['출금액', '출금금액', '출금', '찾으신금액', '지출', '지급액', '지급', 'withdrawal', 'out', 'expense'],
   deposit: ['입금액', '입금금액', '맡기신금액', '수입', '입금', 'deposit', 'in', 'income'],
   balance: ['잔액', '거래후잔액', '잔고', 'balance']
 };
@@ -115,17 +115,36 @@ export function parseExcelTransactions(arrayBuffer) {
  */
 function findHeaderMapping(row) {
   const mapping = {};
+  const normalizedAliases = Object.fromEntries(
+    Object.entries(COLUMN_MAPPINGS).map(([key, aliases]) => [
+      key,
+      aliases.map(alias => alias.replace(/\s+/g, '').toLowerCase())
+    ])
+  );
   
   row.forEach((cell, index) => {
     if (!cell) return;
     const cellStr = String(cell).replace(/\s+/g, '').toLowerCase();
     
-    for (const [key, aliases] of Object.entries(COLUMN_MAPPINGS)) {
-      for (const alias of aliases) {
-        if (cellStr.includes(alias)) {
-          mapping[key] = index;
-          break;
-        }
+    for (const [key, aliases] of Object.entries(normalizedAliases)) {
+      // Do not let a later, broader header such as "입출금은행" replace
+      // the exact "출금" column found earlier in the row.
+      if (mapping[key] === undefined && aliases.includes(cellStr)) {
+        mapping[key] = index;
+      }
+    }
+  });
+
+  row.forEach((cell, index) => {
+    if (!cell) return;
+    const cellStr = String(cell).replace(/\s+/g, '').toLowerCase();
+
+    for (const [key, aliases] of Object.entries(normalizedAliases)) {
+      if (
+        mapping[key] === undefined &&
+        aliases.some(alias => cellStr.startsWith(alias) || cellStr.endsWith(alias))
+      ) {
+        mapping[key] = index;
       }
     }
   });
@@ -327,6 +346,13 @@ export function exportToExcel(transactions, rules) {
   }
   
   const cValues = {};
+  const expenseItems = REPORT_TEMPLATE.filter(item => item.type === 'expense');
+  const keywordCounts = expenseItems.reduce((counts, item) => {
+    const key = normalizeText(item.keyword);
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+  const keywordOccurrences = {};
   
   // A. Build static and raw data cells
   REPORT_TEMPLATE.forEach(item => {
@@ -392,9 +418,22 @@ export function exportToExcel(transactions, rules) {
           .filter(tx => checkKeywordMatch(tx.description, keyword))
           .reduce((sum, tx) => sum + tx.withdrawal, 0);
       } else {
-        expenseSum = transactions
-          .filter(tx => checkKeywordMatch(tx.description, keyword))
-          .reduce((sum, tx) => sum + tx.withdrawal, 0);
+        const matches = transactions.filter(
+          tx => checkKeywordMatch(tx.description, keyword) && tx.withdrawal > 0
+        );
+        const normalizedKeyword = normalizeText(keyword);
+        const occurrence = keywordOccurrences[normalizedKeyword] || 0;
+        keywordOccurrences[normalizedKeyword] = occurrence + 1;
+
+        if (keywordCounts[normalizedKeyword] > 1) {
+          // Some report rows share a payee but represent separate purchases.
+          // Allocate each transaction once instead of duplicating it in every row.
+          const isLastOccurrence = occurrence === keywordCounts[normalizedKeyword] - 1;
+          const allocated = isLastOccurrence ? matches.slice(occurrence) : matches.slice(occurrence, occurrence + 1);
+          expenseSum = allocated.reduce((sum, tx) => sum + tx.withdrawal, 0);
+        } else {
+          expenseSum = matches.reduce((sum, tx) => sum + tx.withdrawal, 0);
+        }
       }
       
       const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: 2 });
@@ -446,6 +485,34 @@ export function exportToExcel(transactions, rules) {
     { wch: 8 },  // H: (공백)
     { wch: 8 }   // I: (공백)
   ];
+  worksheetReport['!rows'] = Array.from({ length: maxRow }, (_, index) => ({
+    hpt: index < 3 ? 24 : 18
+  }));
+
+  const merges = [
+    { s: { r: 0, c: 0 }, e: { r: 2, c: 8 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 1 } },
+    { s: { r: 3, c: 2 }, e: { r: 3, c: 5 } },
+    { s: { r: 3, c: 6 }, e: { r: 3, c: 8 } }
+  ];
+
+  REPORT_TEMPLATE.filter(item => item.row >= 5).forEach(item => {
+    const startRow = item.row - 1;
+    merges.push({ s: { r: startRow, c: 0 }, e: { r: startRow + 1, c: 1 } });
+    if (item.type === 'formula') {
+      merges.push({ s: { r: startRow, c: 2 }, e: { r: startRow + 1, c: 8 } });
+    } else {
+      merges.push({ s: { r: startRow, c: 2 }, e: { r: startRow + 1, c: 5 } });
+      merges.push({ s: { r: startRow, c: 6 }, e: { r: startRow + 1, c: 8 } });
+    }
+  });
+  worksheetReport['!merges'] = merges;
+
+  for (const item of REPORT_TEMPLATE) {
+    if (item.row < 5) continue;
+    const amountCell = worksheetReport[`C${item.row}`];
+    if (amountCell) amountCell.z = '#,##0';
+  }
   
   // --- 2. SHEET 2: 상세 거래 내역 (Detail Classified List) ---
   const exportData = transactions.map((tx, idx) => ({
@@ -477,4 +544,3 @@ export function exportToExcel(transactions, rules) {
   const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
   return excelBuffer;
 }
-
