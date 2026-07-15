@@ -29,3 +29,8 @@ dist-ssr/
 # Tauri build outputs
 src-tauri/target/
 src-tauri/gen/
+
+# Excel files (prevent committing private transaction logs)
+*.xlsx
+*.xls
+
