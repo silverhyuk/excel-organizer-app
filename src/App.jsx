@@ -15,24 +15,11 @@ import {
   FileSpreadsheet,
   AlertCircle
 } from 'lucide-react';
-import { parseExcelTransactions, exportToExcel, SUMMARY_ROW_OPTIONS } from './utils/excelParser';
+import { parseExcelTransactions, exportToExcel } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
+import { cloneDefaultReportCategories, loadReportCategories, saveReportCategories } from './utils/reportConfig';
 import baldDancerImg from './assets/bald_dancer.jpg';
 import reportTemplateUrl from '../result.xlsx?url';
-
-const SUMMARY_ROWS_STORAGE_KEY = 'excel_organizer_summary_rows';
-
-function getSavedSummaryRows() {
-  const defaults = SUMMARY_ROW_OPTIONS.map(summary => summary.id);
-  try {
-    const saved = JSON.parse(localStorage.getItem(SUMMARY_ROWS_STORAGE_KEY));
-    return Array.isArray(saved)
-      ? defaults.filter(id => saved.includes(id))
-      : defaults;
-  } catch {
-    return defaults;
-  }
-}
 
 function App() {
   const [transactions, setTransactions] = useState([]);
@@ -41,7 +28,11 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
-  const [enabledSummaryRows, setEnabledSummaryRows] = useState(getSavedSummaryRows);
+  const [reportCategories, setReportCategories] = useState(cloneDefaultReportCategories);
+  const [editingReportCategoryId, setEditingReportCategoryId] = useState('utilities');
+  const [newDetailLabel, setNewDetailLabel] = useState('');
+  const [newDetailKeyword, setNewDetailKeyword] = useState('');
+  const [reportConfigStatus, setReportConfigStatus] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -62,6 +53,14 @@ function App() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    loadReportCategories().then(categories => {
+      if (active) setReportCategories(categories);
+    });
+    return () => { active = false; };
   }, []);
 
   // Re-classify all transactions when rules change or new transactions load
@@ -138,7 +137,7 @@ function App() {
       const templateResponse = await fetch(reportTemplateUrl);
       if (!templateResponse.ok) throw new Error('기준 양식을 불러오지 못했습니다.');
       const templateBuffer = await templateResponse.arrayBuffer();
-      const buffer = await exportToExcel(transactions, rules, templateBuffer, { enabledSummaryRows });
+      const buffer = await exportToExcel(transactions, rules, templateBuffer, { reportCategories });
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -154,20 +153,48 @@ function App() {
     }
   };
 
-  const updateSummaryRows = (nextRows) => {
-    setEnabledSummaryRows(nextRows);
-    localStorage.setItem(SUMMARY_ROWS_STORAGE_KEY, JSON.stringify(nextRows));
+  const updateReportDetail = (detailId, field, value) => {
+    setReportConfigStatus('');
+    setReportCategories(categories => categories.map(category => (
+      category.id === editingReportCategoryId
+        ? { ...category, details: category.details.map(detail => detail.id === detailId ? { ...detail, [field]: value } : detail) }
+        : category
+    )));
   };
 
-  const handleRemoveSummaryRow = (summaryId) => {
-    updateSummaryRows(enabledSummaryRows.filter(id => id !== summaryId));
+  const handleRemoveReportDetail = (detailId) => {
+    setReportConfigStatus('');
+    setReportCategories(categories => categories.map(category => (
+      category.id === editingReportCategoryId
+        ? { ...category, details: category.details.filter(detail => detail.id !== detailId) }
+        : category
+    )));
   };
 
-  const handleAddSummaryRow = (summaryId) => {
-    const enabled = new Set([...enabledSummaryRows, summaryId]);
-    updateSummaryRows(
-      SUMMARY_ROW_OPTIONS.map(summary => summary.id).filter(id => enabled.has(id))
-    );
+  const handleAddReportDetail = () => {
+    const category = reportCategories.find(item => item.id === editingReportCategoryId);
+    if (!newDetailLabel.trim() || !newDetailKeyword.trim() || category.details.length >= category.detailRows.length) return;
+    setReportCategories(categories => categories.map(item => (
+      item.id === editingReportCategoryId
+        ? { ...item, details: [...item.details, { id: crypto.randomUUID(), label: newDetailLabel.trim(), keyword: newDetailKeyword.trim() }] }
+        : item
+    )));
+    setNewDetailLabel('');
+    setNewDetailKeyword('');
+    setReportConfigStatus('');
+  };
+
+  const handleSaveReportCategories = async () => {
+    try {
+      const saved = await saveReportCategories(reportCategories);
+      setReportCategories(saved);
+      setReportConfigStatus('저장됨');
+      return true;
+    } catch (error) {
+      console.error(error);
+      setReportConfigStatus('저장 실패');
+      return false;
+    }
   };
 
   // Add keyword to current editing category
@@ -404,7 +431,7 @@ function App() {
                     onClick={() => setIsSummaryModalOpen(true)}
                     id="btn-summary-manager"
                   >
-                    <Plus size={12} /> 요약행 설정
+                    <Plus size={12} /> 큰 카테고리 설정
                   </button>
                   <button
                     className="secondary"
@@ -656,15 +683,15 @@ function App() {
         </div>
       )}
 
-      {/* Summary Row Manager Modal */}
+      {/* Major Category Manager Modal */}
       {isSummaryModalOpen && (
         <div className="modal-backdrop" onClick={() => setIsSummaryModalOpen(false)}>
           <div className="modal-content glass-panel" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
               <div>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>엑셀 요약행 설정</h3>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>큰 카테고리 설정</h3>
                 <p style={{ marginTop: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                  다운로드할 보고서에 표시할 요약행을 선택하세요.
+                  다운로드할 보고서에 표시할 큰 카테고리를 선택하세요.
                 </p>
               </div>
               <button className="secondary" style={{ padding: '0.25rem', borderRadius: '50%' }} onClick={() => setIsSummaryModalOpen(false)}>
@@ -672,34 +699,73 @@ function App() {
               </button>
             </div>
 
-            <div className="summary-row-list">
-              {SUMMARY_ROW_OPTIONS.map(summary => {
-                const isEnabled = enabledSummaryRows.includes(summary.id);
-                return (
-                  <div className="summary-row-item" key={summary.id}>
-                    <div>
-                      <strong>{summary.label}</strong>
-                      <span>Excel {summary.row}행</span>
-                    </div>
-                    {isEnabled ? (
-                      <button className="secondary danger" onClick={() => handleRemoveSummaryRow(summary.id)}>
-                        <Trash2 size={14} /> 빼기
-                      </button>
-                    ) : (
-                      <button onClick={() => handleAddSummaryRow(summary.id)}>
-                        <Plus size={14} /> 추가
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="major-category-tabs">
+              {reportCategories.map(category => (
+                <button
+                  key={category.id}
+                  className={editingReportCategoryId === category.id ? '' : 'secondary'}
+                  onClick={() => {
+                    setEditingReportCategoryId(category.id);
+                    setNewDetailLabel('');
+                    setNewDetailKeyword('');
+                  }}
+                >
+                  {category.label}
+                </button>
+              ))}
             </div>
+
+            {(() => {
+              const category = reportCategories.find(item => item.id === editingReportCategoryId);
+              const isFull = category.details.length >= category.detailRows.length;
+              return (
+                <>
+                  <div className="report-detail-header">
+                    <strong>{category.label} 상세 항목</strong>
+                    <span>{category.details.length}/{category.detailRows.length}개</span>
+                  </div>
+                  <div className="report-detail-list">
+                    {category.details.map(detail => (
+                      <div className="report-detail-item" key={detail.id}>
+                        <input
+                          value={detail.label}
+                          aria-label="상세 항목명"
+                          onChange={(event) => updateReportDetail(detail.id, 'label', event.target.value)}
+                          placeholder="항목명"
+                        />
+                        <input
+                          value={detail.keyword}
+                          aria-label="거래처 키워드"
+                          onChange={(event) => updateReportDetail(detail.id, 'keyword', event.target.value)}
+                          placeholder={detail.matchType === 'salary' ? '급여 자동 판별' : '거래처 키워드'}
+                          disabled={detail.matchType === 'salary'}
+                        />
+                        <button className="secondary danger" onClick={() => handleRemoveReportDetail(detail.id)} aria-label={`${detail.label} 삭제`}>
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="report-detail-add">
+                    <input value={newDetailLabel} onChange={(event) => setNewDetailLabel(event.target.value)} placeholder="새 항목명" disabled={isFull} />
+                    <input value={newDetailKeyword} onChange={(event) => setNewDetailKeyword(event.target.value)} placeholder="거래처 키워드" disabled={isFull} />
+                    <button onClick={handleAddReportDetail} disabled={isFull || !newDetailLabel.trim() || !newDetailKeyword.trim()}>
+                      <Plus size={15} /> 추가
+                    </button>
+                  </div>
+                  {isFull && <p className="report-detail-limit">현재 Excel 양식에서 {category.label}은 최대 {category.detailRows.length}개까지 사용할 수 있습니다.</p>}
+                </>
+              );
+            })()}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-glass)', paddingTop: '1.25rem', marginTop: '1.25rem' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                {enabledSummaryRows.length}개 요약행 표시 중
+                {reportConfigStatus || '설정은 앱 전용 JSON 파일에 저장됩니다.'}
               </span>
-              <button onClick={() => setIsSummaryModalOpen(false)}>설정 완료</button>
+              <div style={{ display: 'flex', gap: '0.6rem' }}>
+                <button className="secondary" onClick={() => setReportCategories(cloneDefaultReportCategories())}>기본값 복원</button>
+                <button onClick={async () => { if (await handleSaveReportCategories()) setIsSummaryModalOpen(false); }}>저장</button>
+              </div>
             </div>
           </div>
         </div>

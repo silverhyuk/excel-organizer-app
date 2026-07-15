@@ -4,6 +4,7 @@ import test from 'node:test';
 import * as XLSX from 'xlsx';
 
 import { exportToExcel, parseExcelTransactions } from './excelParser.js';
+import { cloneDefaultReportCategories } from './reportConfig.js';
 
 test('keeps the exact withdrawal column when an input/output bank column follows it', async () => {
   const worksheet = XLSX.utils.aoa_to_sheet([
@@ -70,4 +71,31 @@ test('can remove and add predefined summary rows without changing report structu
   assert.equal(report.A19.v, '공과금');
   assert.equal(report.C19.f, 'SUM(C11:F18)');
   assert.equal(report['!merges'].length, 136);
+});
+
+test('exports saved detail categories, hides removed items, and recalculates the major category', async () => {
+  const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
+  const categories = cloneDefaultReportCategories();
+  const utilities = categories.find(category => category.id === 'utilities');
+  utilities.details = [
+    { id: 'gas-custom', label: '도시가스', keyword: '코원에너지' },
+    { id: 'electric-custom', label: '전기료', keyword: '한전' }
+  ];
+  const transactions = [
+    { description: '011코원에너지', withdrawal: 105250, deposit: 0 },
+    { description: '한전 전기요금', withdrawal: 220000, deposit: 0 }
+  ];
+
+  const output = await exportToExcel(transactions, {}, template, { reportCategories: categories });
+  const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
+  const report = workbook.Sheets.Sheet1;
+
+  assert.equal(report.A11.v, '도시가스');
+  assert.equal(report.G11.v, '코원에너지');
+  assert.equal(report.C11.v, 105250);
+  assert.equal(report.A13.v, '전기료');
+  assert.equal(report.C13.v, 220000);
+  assert.equal(report.C19.v, 325250);
+  assert.equal(report['!rows'][14].hidden, true);
+  assert.equal(report['!rows'][16].hidden, true);
 });

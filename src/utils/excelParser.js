@@ -249,7 +249,7 @@ const REPORT_TEMPLATE = [
 ];
 
 export const SUMMARY_ROW_OPTIONS = [
-  { id: 'salary', row: 9, label: '총 급여' },
+  { id: 'salary', row: 9, label: '급여' },
   { id: 'utilities', row: 19, label: '공과금' },
   { id: 'card', row: 23, label: '지출카드' },
   { id: 'advertising', row: 31, label: '광고비' },
@@ -455,6 +455,110 @@ function replaceCellValue(sheetXml, cellRef, value) {
   return sheetXml.replace(cellPattern, `$1${value}$3`);
 }
 
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function replaceCellText(sheetXml, cellRef, value) {
+  const cellPattern = new RegExp(`(<c\\s+[^>]*r="${cellRef}"[^>/]*)(?:\\s*/>|>[\\s\\S]*?</c>)`);
+  if (!cellPattern.test(sheetXml)) {
+    throw new Error(`기준 양식에서 ${cellRef} 셀을 찾을 수 없습니다.`);
+  }
+  return sheetXml.replace(cellPattern, (_, opening) => {
+    const inlineOpening = opening.replace(/\\s+t="[^"]*"/g, '') + ' t="inlineStr"';
+    return `${inlineOpening}><is><t>${escapeXml(value)}</t></is></c>`;
+  });
+}
+
+function setRowsHidden(sheetXml, rowNumbers, hidden = true) {
+  for (const rowNumber of rowNumbers) {
+    const rowPattern = new RegExp(`<row\\s+([^>]*\\br="${rowNumber}"[^>]*)>`);
+    sheetXml = sheetXml.replace(rowPattern, (_, attributes) => {
+      const cleanAttributes = attributes.replace(/\\s+hidden="[^"]*"/g, '');
+      return `<row ${cleanAttributes}${hidden ? ' hidden="1"' : ''}>`;
+    });
+  }
+  return sheetXml;
+}
+
+function calculateSalary(transactions) {
+  const vendorKeywords = [
+    '코원', '맑은물', '한전', '난방', '수협', '놀유니버스', '여기어때', '잠자리',
+    '에이치투오', '아나한별', '유림', '하이엠', '현대엘', '이희윤', '아하소프트',
+    '산하', '신아', '카피올', '에바센트', '도솔', '한빛전기', '엑세스', '주안운수',
+    '홍현기', '황영주', '이순이', '장안주류', '한화손'
+  ];
+  return transactions.filter(tx => {
+    const description = tx.description || '';
+    const isNamePattern = /^\d{3}[가-힣]{2,4}$/.test(description) || /^\d{3}[가-힣]{2,4}\(/.test(description);
+    return isNamePattern && !vendorKeywords.some(keyword => description.includes(keyword)) && tx.withdrawal > 0;
+  }).reduce((sum, tx) => sum + tx.withdrawal, 0);
+}
+
+function calculateConfiguredDetails(transactions, reportCategories) {
+  const keywordTotals = new Map();
+  const keywordIndexes = new Map();
+  for (const category of reportCategories) {
+    for (const detail of category.details) {
+      if (!detail.keyword) continue;
+      const normalized = normalizeText(detail.keyword);
+      keywordTotals.set(normalized, (keywordTotals.get(normalized) || 0) + 1);
+    }
+  }
+
+  return reportCategories.map(category => {
+    const details = category.details.map(detail => {
+      if (detail.matchType === 'salary') return { ...detail, value: calculateSalary(transactions) };
+      const matches = transactions.filter(tx => checkKeywordMatch(tx.description, detail.keyword) && tx.withdrawal > 0);
+      const normalized = normalizeText(detail.keyword);
+      const occurrence = keywordIndexes.get(normalized) || 0;
+      keywordIndexes.set(normalized, occurrence + 1);
+      let selected = matches;
+      if ((keywordTotals.get(normalized) || 0) > 1) {
+        const last = occurrence === keywordTotals.get(normalized) - 1;
+        selected = last ? matches.slice(occurrence) : matches.slice(occurrence, occurrence + 1);
+      }
+      if (normalized === '현대엘레베이터') {
+        selected = matches.filter(tx => detail.label.includes('카리프트') ? tx.withdrawal !== 726000 : tx.withdrawal === 726000);
+      } else if (normalized === 'KT') {
+        selected = matches.filter(tx => tx.withdrawal < 100000);
+      }
+      return { ...detail, value: selected.reduce((sum, tx) => sum + tx.withdrawal, 0) };
+    });
+    return { ...category, details, total: details.reduce((sum, detail) => sum + detail.value, 0) };
+  });
+}
+
+function applyConfiguredReport(sheetXml, transactions, reportCategories) {
+  const configured = calculateConfiguredDetails(transactions, reportCategories);
+  sheetXml = replaceCellValue(sheetXml, 'C5', transactions.reduce((sum, tx) => sum + tx.deposit, 0));
+
+  for (const category of configured) {
+    category.detailRows.forEach((row, index) => {
+      const detail = category.details[index];
+      if (detail) {
+        sheetXml = replaceCellText(sheetXml, `A${row}`, detail.label);
+        sheetXml = replaceCellText(sheetXml, `G${row}`, detail.keyword);
+        sheetXml = replaceCellValue(sheetXml, `C${row}`, detail.value);
+        sheetXml = setRowsHidden(sheetXml, [row, row + 1], false);
+      } else {
+        sheetXml = replaceCellText(sheetXml, `A${row}`, '');
+        sheetXml = replaceCellText(sheetXml, `G${row}`, '');
+        sheetXml = replaceCellValue(sheetXml, `C${row}`, 0);
+        sheetXml = setRowsHidden(sheetXml, [row, row + 1], true);
+      }
+    });
+    sheetXml = replaceCellText(sheetXml, `A${category.summaryRow}`, category.id === 'salary' ? '총 급여' : category.label);
+    sheetXml = replaceCellValue(sheetXml, `C${category.summaryRow}`, category.total);
+  }
+  return sheetXml;
+}
+
 function hideDisabledSummaryRows(sheetXml, enabledSummaryRows) {
   const enabled = new Set(enabledSummaryRows);
 
@@ -487,7 +591,6 @@ export async function exportToExcel(transactions, rules, templateBuffer, options
     throw new Error('result.xlsx 기준 양식을 불러오지 못했습니다.');
   }
 
-  const cValues = await calculateReportValues(transactions);
   const zip = await JSZip.loadAsync(templateBuffer);
   const sheetPath = 'xl/worksheets/sheet1.xml';
   const sheetFile = zip.file(sheetPath);
@@ -496,13 +599,18 @@ export async function exportToExcel(transactions, rules, templateBuffer, options
   }
 
   let sheetXml = await sheetFile.async('string');
-  for (const item of REPORT_TEMPLATE) {
-    if (item.row < 5 || cValues[item.row] === undefined) continue;
-    sheetXml = replaceCellValue(sheetXml, `C${item.row}`, cValues[item.row]);
+  if (Array.isArray(options.reportCategories)) {
+    sheetXml = applyConfiguredReport(sheetXml, transactions, options.reportCategories);
+  } else {
+    const cValues = await calculateReportValues(transactions);
+    for (const item of REPORT_TEMPLATE) {
+      if (item.row < 5 || cValues[item.row] === undefined) continue;
+      sheetXml = replaceCellValue(sheetXml, `C${item.row}`, cValues[item.row]);
+    }
+    const enabledSummaryRows = options.enabledSummaryRows
+      ?? SUMMARY_ROW_OPTIONS.map(summary => summary.id);
+    sheetXml = hideDisabledSummaryRows(sheetXml, enabledSummaryRows);
   }
-  const enabledSummaryRows = options.enabledSummaryRows
-    ?? SUMMARY_ROW_OPTIONS.map(summary => summary.id);
-  sheetXml = hideDisabledSummaryRows(sheetXml, enabledSummaryRows);
   zip.file(sheetPath, sheetXml);
 
   return zip.generateAsync({
