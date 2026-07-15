@@ -44,7 +44,11 @@ export function parseExcelTransactions(arrayBuffer) {
         const currentMapping = findHeaderMapping(row);
         
         // If we found at least date and one of description/withdrawal/deposit, we assume this is the header row
-        if (currentMapping.date !== undefined && (currentMapping.description !== undefined || currentMapping.withdrawal !== undefined)) {
+        if (
+          currentMapping.date !== undefined &&
+          currentMapping.description !== undefined &&
+          (currentMapping.withdrawal !== undefined || currentMapping.deposit !== undefined)
+        ) {
           headerRowIndex = i;
           mappingsFound = currentMapping;
           break;
@@ -52,20 +56,7 @@ export function parseExcelTransactions(arrayBuffer) {
       }
       
       if (headerRowIndex === -1) {
-        // Fallback: If no headers match, try to use the first row that has 3+ populated columns
-        for (let i = 0; i < rawRows.length; i++) {
-          const row = rawRows[i].filter(val => val !== '');
-          if (row.length >= 4) {
-            headerRowIndex = i;
-            // Generate raw mapping based on indices
-            mappingsFound = { date: 0, description: 1, withdrawal: 2, deposit: 3, balance: 4 };
-            break;
-          }
-        }
-      }
-      
-      if (headerRowIndex === -1) {
-        throw new Error('올바른 계좌 내역 엑셀 포맷을 찾을 수 없습니다. 날짜, 거래내용, 출금액 등의 열이 필요합니다.');
+        throw new Error('올바른 계좌 내역 엑셀 헤더를 찾을 수 없습니다. 날짜, 거래내용, 출금액 또는 입금액 열이 필요합니다.');
       }
       
       const transactions = [];
@@ -332,7 +323,7 @@ function checkKeywordMatch(desc, keyword) {
     return normDesc.includes('최종현');
   }
   
-  return normDesc.includes(normKw) || normKw.includes(normDesc);
+  return normDesc.includes(normKw);
 }
 
 /**
@@ -507,21 +498,21 @@ function setRowsHidden(sheetXml, rowNumbers, hidden = true) {
   return sheetXml;
 }
 
-function calculateSalary(transactions) {
+function isSalaryTransaction(transaction) {
   const vendorKeywords = [
     '코원', '맑은물', '한전', '난방', '수협', '놀유니버스', '여기어때', '잠자리',
     '에이치투오', '아나한별', '유림', '하이엠', '현대엘', '이희윤', '아하소프트',
     '산하', '신아', '카피올', '에바센트', '도솔', '한빛전기', '엑세스', '주안운수',
     '홍현기', '황영주', '이순이', '장안주류', '한화손'
   ];
-  return transactions.filter(tx => {
-    const description = tx.description || '';
-    const isNamePattern = /^\d{3}[가-힣]{2,4}$/.test(description) || /^\d{3}[가-힣]{2,4}\(/.test(description);
-    return isNamePattern && !vendorKeywords.some(keyword => description.includes(keyword)) && tx.withdrawal > 0;
-  }).reduce((sum, tx) => sum + tx.withdrawal, 0);
+  const description = transaction.description || '';
+  const isNamePattern = /^\d{3}[가-힣]{2,4}$/.test(description) || /^\d{3}[가-힣]{2,4}\(/.test(description);
+  return isNamePattern && !vendorKeywords.some(keyword => description.includes(keyword)) && transaction.withdrawal > 0;
 }
 
 function calculateConfiguredDetails(transactions, reportCategories) {
+  const allocatedTransactions = new Set();
+  const categoryAssignments = new Map();
   const keywordTotals = new Map();
   const keywordIndexes = new Map();
   for (const category of reportCategories) {
@@ -532,31 +523,76 @@ function calculateConfiguredDetails(transactions, reportCategories) {
     }
   }
 
-  return reportCategories.map(category => {
+  const configured = reportCategories.map(category => {
     const details = category.details.map(detail => {
-      if (detail.matchType === 'salary') return { ...detail, value: calculateSalary(transactions) };
-      const matches = transactions.filter(tx => checkKeywordMatch(tx.description, detail.keyword) && tx.withdrawal > 0);
+      if (detail.matchType === 'salary') {
+        const selected = transactions.filter(tx => !allocatedTransactions.has(tx) && isSalaryTransaction(tx));
+        selected.forEach(tx => {
+          allocatedTransactions.add(tx);
+          categoryAssignments.set(tx, category.id);
+        });
+        return { ...detail, value: selected.reduce((sum, tx) => sum + tx.withdrawal, 0) };
+      }
+      const matches = transactions.filter(
+        tx => !allocatedTransactions.has(tx) && checkKeywordMatch(tx.description, detail.keyword) && tx.withdrawal > 0
+      );
       const normalized = normalizeText(detail.keyword);
       const occurrence = keywordIndexes.get(normalized) || 0;
       keywordIndexes.set(normalized, occurrence + 1);
       let selected = matches;
       if ((keywordTotals.get(normalized) || 0) > 1) {
         const last = occurrence === keywordTotals.get(normalized) - 1;
-        selected = last ? matches.slice(occurrence) : matches.slice(occurrence, occurrence + 1);
+        selected = last ? matches : matches.slice(0, 1);
       }
       if (normalized === '현대엘레베이터') {
         selected = matches.filter(tx => detail.label.includes('카리프트') ? tx.withdrawal !== 726000 : tx.withdrawal === 726000);
       } else if (normalized === 'KT') {
         selected = matches.filter(tx => tx.withdrawal < 100000);
       }
+      selected.forEach(tx => {
+        allocatedTransactions.add(tx);
+        categoryAssignments.set(tx, category.id);
+      });
       return { ...detail, value: selected.reduce((sum, tx) => sum + tx.withdrawal, 0) };
     });
     return { ...category, details, total: details.reduce((sum, detail) => sum + detail.value, 0) };
   });
+
+  const unclassifiedTotal = transactions
+    .filter(tx => tx.withdrawal > 0 && !allocatedTransactions.has(tx))
+    .reduce((sum, tx) => sum + tx.withdrawal, 0);
+  const misc = configured.find(category => category.id === 'misc');
+  if (misc) {
+    while (misc.details.length < misc.detailRows.length - 1) {
+      misc.details.push({ id: `empty-misc-${misc.details.length}`, label: '', keyword: '', value: 0 });
+    }
+    misc.details.push({
+      id: 'unclassified-withdrawals',
+      label: '미분류 지출',
+      keyword: '',
+      value: unclassifiedTotal
+    });
+    misc.total += unclassifiedTotal;
+    transactions
+      .filter(tx => tx.withdrawal > 0 && !allocatedTransactions.has(tx))
+      .forEach(tx => categoryAssignments.set(tx, 'misc'));
+  }
+
+  return { configured, categoryAssignments };
+}
+
+export function calculateReportCategoryView(transactions, reportCategories) {
+  const { configured, categoryAssignments } = calculateConfiguredDetails(transactions, reportCategories);
+  return {
+    categories: configured,
+    assignments: transactions.map(tx => (
+      tx.deposit > 0 && !(tx.withdrawal > 0) ? 'income' : categoryAssignments.get(tx) || 'misc'
+    ))
+  };
 }
 
 function applyConfiguredReport(sheetXml, transactions, reportCategories, sharedStrings) {
-  const configured = calculateConfiguredDetails(transactions, reportCategories);
+  const { configured } = calculateConfiguredDetails(transactions, reportCategories);
   sheetXml = replaceCellValue(sheetXml, 'C5', transactions.reduce((sum, tx) => sum + tx.deposit, 0));
 
   for (const category of configured) {

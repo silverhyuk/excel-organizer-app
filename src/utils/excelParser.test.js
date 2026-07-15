@@ -4,7 +4,7 @@ import test from 'node:test';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 
-import { exportToExcel, parseExcelTransactions } from './excelParser.js';
+import { calculateReportCategoryView, exportToExcel, parseExcelTransactions } from './excelParser.js';
 import { cloneDefaultReportCategories } from './reportConfig.js';
 
 test('keeps the exact withdrawal column when an input/output bank column follows it', async () => {
@@ -22,6 +22,18 @@ test('keeps the exact withdrawal column when an input/output bank column follows
   assert.equal(transactions.length, 2);
   assert.equal(transactions.reduce((sum, tx) => sum + tx.withdrawal, 0), 105250);
   assert.equal(transactions.reduce((sum, tx) => sum + tx.deposit, 0), 250000);
+});
+
+test('rejects unknown headers instead of guessing an input and output column order', async () => {
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['기준일', '거래명', '금액A', '금액B', '현재금액'],
+    ['2026-06-01', '예약 매출', 250000, 0, 250000]
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, '거래내역');
+  const input = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+  await assert.rejects(parseExcelTransactions(input), /엑셀 헤더를 찾을 수 없습니다/);
 });
 
 test('exports summary values while preserving the exact result.xlsx layout', async () => {
@@ -109,4 +121,59 @@ test('exports saved detail categories, hides removed items, and recalculates the
   assert.equal(report['!rows'][20].hidden, true);
   assert.equal(report.A21.v, '');
   assert.equal(report.G21.v, '');
+});
+
+test('adds unclassified withdrawals to misc so exported expenses match the dashboard total', async () => {
+  const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
+  const categories = cloneDefaultReportCategories();
+  const transactions = [
+    { description: '011코원에너지', withdrawal: 105250, deposit: 0 },
+    { description: '등록되지 않은 거래처', withdrawal: 330000, deposit: 0 },
+    { description: '예약 매출', withdrawal: 0, deposit: 500000 }
+  ];
+
+  const output = await exportToExcel(transactions, {}, template, { reportCategories: categories });
+  const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
+  const report = workbook.Sheets.Sheet1;
+  const exportedWithdrawal = ['C9', 'C19', 'C23', 'C31', 'C81', 'C95']
+    .reduce((sum, cell) => sum + report[cell].v, 0);
+
+  assert.equal(report.C5.v, 500000);
+  assert.equal(report.C19.v, 105250);
+  assert.equal(report.A93.v, '미분류 지출');
+  assert.equal(report.C93.v, 330000);
+  assert.equal(report.C95.v, 330000);
+  assert.equal(exportedWithdrawal, 435250);
+});
+
+test('does not match a short description against a longer keyword', async () => {
+  const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
+  const categories = cloneDefaultReportCategories().map(category => ({ ...category, details: [] }));
+  categories.find(category => category.id === 'utilities').details = [
+    { id: 'long-keyword', label: '인터넷', keyword: 'KT통신요금' }
+  ];
+  const transactions = [{ description: 'KT', withdrawal: 50000, deposit: 0 }];
+
+  const output = await exportToExcel(transactions, {}, template, { reportCategories: categories });
+  const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
+  const report = workbook.Sheets.Sheet1;
+
+  assert.equal(report.C11.v, 0);
+  assert.equal(report.C93.v, 50000);
+  assert.equal(report.C95.v, 50000);
+});
+
+test('uses the same major category totals for the dashboard and exported report', () => {
+  const categories = cloneDefaultReportCategories();
+  const transactions = [
+    { description: '011코원에너지', withdrawal: 105250, deposit: 0 },
+    { description: '등록되지 않은 거래처', withdrawal: 330000, deposit: 0 },
+    { description: '예약 매출', withdrawal: 0, deposit: 500000 }
+  ];
+
+  const view = calculateReportCategoryView(transactions, categories);
+
+  assert.deepEqual(view.assignments, ['utilities', 'misc', 'income']);
+  assert.equal(view.categories.find(category => category.id === 'utilities').total, 105250);
+  assert.equal(view.categories.find(category => category.id === 'misc').total, 330000);
 });

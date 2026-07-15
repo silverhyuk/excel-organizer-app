@@ -47,7 +47,7 @@ export const DEFAULT_REPORT_CATEGORIES = [
     id: 'misc', label: '기타잡비', summaryRow: 95, detailRows: [83, 85, 87, 89, 91, 93],
     details: [
       ['생수텍', '홍현기'], ['객실카드홀더', '홍현기'], ['카드키 단말기', '황영주'],
-      ['식자재', '이순이'], ['디너 소주/맥주', '㈜장안주류판매'], ['식자재', '이순이']
+      ['식자재', '이순이'], ['디너 소주/맥주', '㈜장안주류판매']
     ].map(([label, keyword], index) => ({ id: `misc-${index + 1}`, label, keyword }))
   }
 ];
@@ -63,7 +63,7 @@ function normalizeConfig(config) {
     if (!saved || !Array.isArray(saved.details)) return structuredClone(defaultCategory);
     return {
       ...structuredClone(defaultCategory),
-      details: saved.details.slice(0, defaultCategory.detailRows.length).map(detail => ({
+      details: saved.details.slice(0, defaultCategory.id === 'misc' ? defaultCategory.detailRows.length - 1 : defaultCategory.detailRows.length).map(detail => ({
         id: String(detail.id || crypto.randomUUID()),
         label: String(detail.label || '').trim(),
         keyword: String(detail.keyword || '').trim(),

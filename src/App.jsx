@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Upload, 
   Download, 
@@ -8,16 +8,16 @@ import {
   Trash2, 
   X, 
   Search, 
-  Hotel, 
   TrendingDown, 
   TrendingUp, 
   DollarSign, 
   FileSpreadsheet,
   AlertCircle
 } from 'lucide-react';
-import { parseExcelTransactions, exportToExcel } from './utils/excelParser';
+import { calculateReportCategoryView, parseExcelTransactions, exportToExcel } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
 import { cloneDefaultReportCategories, loadReportCategories, saveReportCategories } from './utils/reportConfig';
+import { sumTransactionAmounts } from './utils/transactionTotals';
 import baldDancerImg from './assets/bald_dancer.jpg';
 import reportTemplateUrl from '../result.xlsx?url';
 
@@ -173,7 +173,8 @@ function App() {
 
   const handleAddReportDetail = () => {
     const category = reportCategories.find(item => item.id === editingReportCategoryId);
-    if (!newDetailLabel.trim() || !newDetailKeyword.trim() || category.details.length >= category.detailRows.length) return;
+    const detailLimit = category.id === 'misc' ? category.detailRows.length - 1 : category.detailRows.length;
+    if (!newDetailLabel.trim() || !newDetailKeyword.trim() || category.details.length >= detailLimit) return;
     setReportCategories(categories => categories.map(item => (
       item.id === editingReportCategoryId
         ? { ...item, details: [...item.details, { id: crypto.randomUUID(), label: newDetailLabel.trim(), keyword: newDetailKeyword.trim() }] }
@@ -236,17 +237,6 @@ function App() {
     saveRules(updatedRules);
   };
 
-  // Manually update transaction category
-  const handleManualCategoryChange = (txId, newCat) => {
-    const updated = transactions.map(tx => {
-      if (tx.id === txId) {
-        return { ...tx, category: newCat };
-      }
-      return tx;
-    });
-    setTransactions(updated);
-  };
-
   // Reset to default rules
   const handleResetRules = () => {
     if (window.confirm('분류 규칙을 초기 상태로 되돌리시겠습니까?')) {
@@ -265,27 +255,28 @@ function App() {
   };
 
   // Calculations for Stats
-  const totalWithdrawal = transactions
-    .filter(tx => selectedCategory === 'all' || tx.category === selectedCategory)
-    .reduce((sum, tx) => sum + tx.withdrawal, 0);
-
-  const totalDeposit = transactions
-    .filter(tx => selectedCategory === 'all' || tx.category === selectedCategory)
-    .reduce((sum, tx) => sum + tx.deposit, 0);
-
-  const selectedTotal = selectedCategory === 'income' ? totalDeposit : totalWithdrawal;
-
   // Overall sums (independent of selectedCategory for summary cards)
   const grandWithdrawal = transactions.reduce((sum, tx) => sum + tx.withdrawal, 0);
   const grandDeposit = transactions.reduce((sum, tx) => sum + tx.deposit, 0);
-  
-  // Hotel Category specific sum
-  const hotelWithdrawal = transactions
-    .filter(tx => tx.category === 'hotel')
-    .reduce((sum, tx) => sum + tx.withdrawal, 0);
+
+  const reportCategoryView = useMemo(
+    () => calculateReportCategoryView(transactions, reportCategories),
+    [transactions, reportCategories]
+  );
+  const categorizedTransactions = transactions.map((tx, index) => ({
+    ...tx,
+    category: reportCategoryView.assignments[index]
+  }));
+  const selectedTransactions = categorizedTransactions.filter(
+    tx => selectedCategory === 'all' || tx.category === selectedCategory
+  );
+  const selectedTotal = sumTransactionAmounts(selectedTransactions);
+  const selectedIncomeOnly = selectedTransactions.length > 0 && selectedTransactions.every(
+    tx => tx.deposit > 0 && !(tx.withdrawal > 0)
+  );
 
   // Filtered transactions for the main table list
-  const filteredTransactions = transactions.filter(tx => {
+  const filteredTransactions = categorizedTransactions.filter(tx => {
     const matchesCategory = selectedCategory === 'all' || tx.category === selectedCategory;
     const matchesSearch = tx.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           String(tx.withdrawal).includes(searchTerm) ||
@@ -294,18 +285,18 @@ function App() {
   });
 
   // Calculate percentages for statistics chart
-  const categoryStats = Object.keys(rules).map(key => {
-    const isIncome = key === 'income';
-    const sum = transactions
-      .filter(tx => tx.category === key)
-      .reduce((sum, tx) => sum + (isIncome ? tx.deposit : tx.withdrawal), 0);
+  const categoryStats = [
+    { id: 'income', label: '수입', total: grandDeposit },
+    ...reportCategoryView.categories
+  ].map(category => {
+    const isIncome = category.id === 'income';
     const total = isIncome ? grandDeposit : grandWithdrawal;
-    const pct = total > 0 ? (sum / total) * 100 : 0;
+    const pct = total > 0 ? (category.total / total) * 100 : 0;
     return {
-      key,
-      name: rules[key].name,
-      colorClass: rules[key].colorClass,
-      amount: sum,
+      key: category.id,
+      name: category.label,
+      colorClass: isIncome ? 'income' : category.id,
+      amount: category.total,
       percentage: pct
     };
   }).sort((a, b) => b.amount - a.amount); // Sort by highest expenditure first
@@ -376,29 +367,7 @@ function App() {
         <>
           {/* Top Summary Widgets */}
           <div className="stats-grid">
-            <div className="glass-panel stat-card">
-              <div className="stat-header">
-                <span>총 지출액 (출금)</span>
-                <TrendingDown size={18} style={{ color: 'var(--accent-rose)' }} />
-              </div>
-              <div className="stat-val expense">
-                ₩{grandWithdrawal.toLocaleString()}
-              </div>
-              <div className="stat-footer">파일 내 모든 지출 항목 합계</div>
-            </div>
-
-            <div className="glass-panel stat-card" style={{ borderColor: 'var(--border-glass-active)', boxShadow: 'var(--shadow-neon)' }}>
-              <div className="stat-header">
-                <span style={{ color: 'var(--accent-rose)', fontWeight: 600 }}>🏨 호텔 / 숙박 지출금</span>
-                <Hotel size={18} style={{ color: 'var(--accent-rose)' }} />
-              </div>
-              <div className="stat-val" style={{ color: 'var(--accent-rose)', textShadow: '0 0 10px rgba(244, 63, 94, 0.3)' }}>
-                ₩{hotelWithdrawal.toLocaleString()}
-              </div>
-              <div className="stat-footer">호텔/숙박 카테고리로 분류된 지출</div>
-            </div>
-
-            <div className="glass-panel stat-card">
+            <div className="glass-panel stat-card stat-income">
               <div className="stat-header">
                 <span>총 수입액 (입금)</span>
                 <TrendingUp size={18} style={{ color: 'var(--accent-emerald)' }} />
@@ -409,7 +378,18 @@ function App() {
               <div className="stat-footer">급여, 이체입금 등 전체 수입 합계</div>
             </div>
 
-            <div className="glass-panel stat-card">
+            <div className="glass-panel stat-card stat-expense">
+              <div className="stat-header">
+                <span>총 지출액 (출금)</span>
+                <TrendingDown size={18} style={{ color: 'var(--accent-rose)' }} />
+              </div>
+              <div className="stat-val expense">
+                ₩{grandWithdrawal.toLocaleString()}
+              </div>
+              <div className="stat-footer">파일 내 모든 지출 항목 합계</div>
+            </div>
+
+            <div className="glass-panel stat-card stat-net">
               <div className="stat-header">
                 <span>순 현금흐름</span>
                 <DollarSign size={18} style={{ color: 'var(--accent-cyan)' }} />
@@ -437,14 +417,6 @@ function App() {
                   >
                     <Plus size={12} /> 큰 카테고리 설정
                   </button>
-                  <button
-                    className="secondary"
-                    style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
-                    onClick={() => setIsRulesModalOpen(true)}
-                    id="btn-rules-manager"
-                  >
-                    <Sliders size={12} /> 분류규칙 설정
-                  </button>
                 </div>
               </div>
 
@@ -457,20 +429,41 @@ function App() {
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{transactions.length}건</span>
                 </div>
 
-                {categoryStats.map(stat => (
-                  <div 
-                    key={stat.key}
-                    className={`category-item ${selectedCategory === stat.key ? 'active' : ''}`}
-                    onClick={() => setSelectedCategory(stat.key)}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span className={`category-badge ${stat.colorClass}`}>{stat.name}</span>
-                    </div>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>
-                      ₩{stat.amount.toLocaleString()} ({stat.percentage.toFixed(0)}%)
-                    </span>
+                <div className="category-group category-group-income">
+                  <div className="category-group-title">
+                    <span>수입</span>
+                    <span>입금 기준</span>
                   </div>
-                ))}
+                  {categoryStats.filter(stat => stat.key === 'income').map(stat => (
+                    <div
+                      key={stat.key}
+                      className={`category-item ${selectedCategory === stat.key ? 'active' : ''}`}
+                      onClick={() => setSelectedCategory(stat.key)}
+                    >
+                      <span className={`category-badge ${stat.colorClass}`}>{stat.name}</span>
+                      <span className="category-amount">₩{stat.amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="category-group category-group-expense">
+                  <div className="category-group-title">
+                    <span>지출</span>
+                    <span>출금 기준</span>
+                  </div>
+                  {categoryStats.filter(stat => stat.key !== 'income').map(stat => (
+                    <div
+                      key={stat.key}
+                      className={`category-item ${selectedCategory === stat.key ? 'active' : ''}`}
+                      onClick={() => setSelectedCategory(stat.key)}
+                    >
+                      <span className={`category-badge ${stat.colorClass}`}>{stat.name}</span>
+                      <span className="category-amount">
+                        ₩{stat.amount.toLocaleString()} ({stat.percentage.toFixed(0)}%)
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Custom SVG Mini Progress Bars Chart */}
@@ -487,10 +480,11 @@ function App() {
                         className={`chart-bar-fill ${stat.colorClass}`}
                         style={{ 
                           width: `${stat.percentage}%`,
-                          background: stat.key === 'hotel' ? 'var(--accent-rose)' :
-                                      stat.key === 'food' ? '#f59e0b' :
-                                      stat.key === 'transport' ? 'var(--accent-blue)' :
-                                      stat.key === 'shopping' ? '#a855f7' : 'var(--text-secondary)'
+                          background: stat.key === 'salary' ? '#8a6f48' :
+                                      stat.key === 'utilities' ? '#668b8c' :
+                                      stat.key === 'card' ? '#486581' :
+                                      stat.key === 'advertising' ? '#9b7256' :
+                                      stat.key === 'expenses' ? '#b86d62' : '#7b817c'
                         }}
                       />
                     </div>
@@ -504,11 +498,11 @@ function App() {
               <div className="table-header-row">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <span className="table-title">
-                    {selectedCategory === 'all' ? '전체 내역' : rules[selectedCategory].name} ({filteredTransactions.length}건)
+                    {selectedCategory === 'all' ? '전체 내역' : categoryStats.find(stat => stat.key === selectedCategory)?.name} ({filteredTransactions.length}건)
                   </span>
                   {selectedCategory !== 'all' && (
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      선택된 {selectedCategory === 'income' ? '입금' : '지출'} 합계: <strong style={{ color: 'var(--text-primary)' }}>₩{selectedTotal.toLocaleString()}</strong>
+                      선택된 {selectedIncomeOnly ? '입금' : '지출'} 합계: <strong style={{ color: 'var(--text-primary)' }}>₩{selectedTotal.toLocaleString()}</strong>
                     </span>
                   )}
                 </div>
@@ -560,34 +554,9 @@ function App() {
                             <div style={{ fontWeight: 500 }}>{tx.description}</div>
                           </td>
                           <td>
-                            {/* Category Selector for Manual Overrides */}
-                            <select 
-                              value={tx.category}
-                              onChange={(e) => handleManualCategoryChange(tx.id, e.target.value)}
-                              style={{ 
-                                padding: '0.2rem 0.5rem', 
-                                fontSize: '0.8rem', 
-                                border: '1px solid rgba(255, 255, 255, 0.05)',
-                                background: tx.category === 'hotel' ? 'rgba(244, 63, 94, 0.15)' :
-                                            tx.category === 'food' ? 'rgba(245, 158, 11, 0.15)' :
-                                            tx.category === 'transport' ? 'rgba(59, 130, 246, 0.15)' :
-                                            tx.category === 'shopping' ? 'rgba(168, 85, 247, 0.15)' :
-                                            'rgba(255, 255, 255, 0.05)',
-                                color: tx.category === 'hotel' ? 'var(--accent-rose)' :
-                                       tx.category === 'food' ? '#f59e0b' :
-                                       tx.category === 'transport' ? 'var(--accent-blue)' :
-                                       tx.category === 'shopping' ? '#a855f7' :
-                                       'var(--text-secondary)',
-                                fontWeight: 500,
-                                cursor: 'pointer'
-                              }}
-                            >
-                              {Object.keys(rules).map(key => (
-                                <option key={key} value={key} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
-                                  {rules[key].name}
-                                </option>
-                              ))}
-                            </select>
+                            <span className={`category-badge ${tx.category}`}>
+                              {categoryStats.find(stat => stat.key === tx.category)?.name}
+                            </span>
                           </td>
                           <td className="amount-col out">
                             {tx.withdrawal > 0 ? `₩${tx.withdrawal.toLocaleString()}` : '-'}
@@ -721,12 +690,13 @@ function App() {
 
             {(() => {
               const category = reportCategories.find(item => item.id === editingReportCategoryId);
-              const isFull = category.details.length >= category.detailRows.length;
+              const detailLimit = category.id === 'misc' ? category.detailRows.length - 1 : category.detailRows.length;
+              const isFull = category.details.length >= detailLimit;
               return (
                 <>
                   <div className="report-detail-header">
                     <strong>{category.label} 상세 항목</strong>
-                    <span>{category.details.length}/{category.detailRows.length}개</span>
+                    <span>{category.details.length}/{detailLimit}개</span>
                   </div>
                   <div className="report-detail-list">
                     {category.details.map(detail => (
@@ -757,7 +727,7 @@ function App() {
                       <Plus size={15} /> 추가
                     </button>
                   </div>
-                  {isFull && <p className="report-detail-limit">현재 Excel 양식에서 {category.label}은 최대 {category.detailRows.length}개까지 사용할 수 있습니다.</p>}
+                  {isFull && <p className="report-detail-limit">현재 Excel 양식에서 {category.label}은 최대 {detailLimit}개까지 사용할 수 있습니다.</p>}
                 </>
               );
             })()}
