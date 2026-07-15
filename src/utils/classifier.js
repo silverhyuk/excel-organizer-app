@@ -20,6 +20,11 @@ const DEFAULT_RULES = {
     colorClass: 'shopping',
     keywords: ['쿠팡', '네이버페이', 'g마켓', '11번가', '옥션', '무신사', '백화점', '이마트', '홈플러스', '다이소', '의류', '패션']
   },
+  income: {
+    name: '입금',
+    colorClass: 'income',
+    keywords: []
+  },
   etc: {
     name: '기타 지출',
     colorClass: 'etc',
@@ -36,7 +41,13 @@ export function getRules() {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
     try {
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      return Object.fromEntries(
+        Object.entries(DEFAULT_RULES).map(([key, defaultRule]) => [
+          key,
+          parsed[key] ? { ...defaultRule, ...parsed[key] } : defaultRule
+        ])
+      );
     } catch (e) {
       console.error('Failed to parse saved rules, resetting to defaults.', e);
     }
@@ -57,14 +68,17 @@ export function saveRules(rules) {
  * @param {object} rules - The current classification rules
  * @returns {string} The matched category key (e.g. 'hotel', 'food', 'etc')
  */
-export function classifyTransaction(description, rules = getRules()) {
+export function classifyTransaction(description, rules = getRules(), transaction = null) {
+  if (transaction && transaction.deposit > 0 && !(transaction.withdrawal > 0)) {
+    return 'income';
+  }
   if (!description) return 'etc';
   
   const descLower = description.toLowerCase().trim();
 
   // Check each category's keywords (except 'etc')
   for (const [key, category] of Object.entries(rules)) {
-    if (key === 'etc') continue;
+    if (key === 'etc' || key === 'income') continue;
     
     for (const keyword of category.keywords) {
       if (descLower.includes(keyword.toLowerCase())) {

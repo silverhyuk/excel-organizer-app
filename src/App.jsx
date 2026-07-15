@@ -68,7 +68,7 @@ function App() {
     if (transactions.length > 0) {
       const updated = transactions.map(tx => ({
         ...tx,
-        category: classifyTransaction(tx.description, rules)
+        category: classifyTransaction(tx.description, rules, tx)
       }));
       setTransactions(updated);
     }
@@ -118,7 +118,7 @@ function App() {
       // Classify initial transactions
       const classified = rawTxList.map(tx => ({
         ...tx,
-        category: classifyTransaction(tx.description, rules)
+        category: classifyTransaction(tx.description, rules, tx)
       }));
       
       setTransactions(classified);
@@ -627,7 +627,7 @@ function App() {
                 onChange={(e) => setEditingCategoryKey(e.target.value)}
                 style={{ width: '100%' }}
               >
-                {Object.keys(rules).filter(k => k !== 'etc').map(key => (
+                {Object.keys(rules).filter(k => k !== 'etc' && k !== 'income').map(key => (
                   <option key={key} value={key}>
                     {rules[key].name}
                   </option>
