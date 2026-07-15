@@ -18,6 +18,7 @@ import { calculateReportCategoryView, parseExcelTransactions, exportToExcel } fr
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
 import { cloneDefaultReportCategories, loadReportCategories, saveReportCategories } from './utils/reportConfig';
 import { sumTransactionAmounts } from './utils/transactionTotals';
+import FinancialCharts from './components/FinancialCharts';
 import baldDancerImg from './assets/bald_dancer.jpg';
 import reportTemplateUrl from '../result.xlsx?url';
 
@@ -400,6 +401,8 @@ function App() {
               <div className="stat-footer">총 수입액 - 총 지출액</div>
             </div>
           </div>
+
+          <FinancialCharts transactions={transactions} categoryStats={categoryStats} />
 
           {/* Sub Grid (Sidebar Rules & Main Table) */}
           <div className="dashboard-grid">
