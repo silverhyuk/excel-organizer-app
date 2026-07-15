@@ -470,7 +470,7 @@ function replaceCellText(sheetXml, cellRef, value) {
     throw new Error(`기준 양식에서 ${cellRef} 셀을 찾을 수 없습니다.`);
   }
   return sheetXml.replace(cellPattern, (_, opening) => {
-    const inlineOpening = opening.replace(/\\s+t="[^"]*"/g, '') + ' t="inlineStr"';
+    const inlineOpening = opening.replace(/\s+t="[^"]*"/g, '') + ' t="inlineStr"';
     return `${inlineOpening}><is><t>${escapeXml(value)}</t></is></c>`;
   });
 }
@@ -479,7 +479,7 @@ function setRowsHidden(sheetXml, rowNumbers, hidden = true) {
   for (const rowNumber of rowNumbers) {
     const rowPattern = new RegExp(`<row\\s+([^>]*\\br="${rowNumber}"[^>]*)>`);
     sheetXml = sheetXml.replace(rowPattern, (_, attributes) => {
-      const cleanAttributes = attributes.replace(/\\s+hidden="[^"]*"/g, '');
+      const cleanAttributes = attributes.replace(/\s+hidden="[^"]*"/g, '');
       return `<row ${cleanAttributes}${hidden ? ' hidden="1"' : ''}>`;
     });
   }

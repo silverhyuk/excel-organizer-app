@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import test from 'node:test';
 import * as XLSX from 'xlsx';
+import JSZip from 'jszip';
 
 import { exportToExcel, parseExcelTransactions } from './excelParser.js';
 import { cloneDefaultReportCategories } from './reportConfig.js';
@@ -87,6 +88,8 @@ test('exports saved detail categories, hides removed items, and recalculates the
   ];
 
   const output = await exportToExcel(transactions, {}, template, { reportCategories: categories });
+  const zip = await JSZip.loadAsync(output);
+  const sheetXml = await zip.file('xl/worksheets/sheet1.xml').async('string');
   const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
   const report = workbook.Sheets.Sheet1;
 
@@ -96,6 +99,8 @@ test('exports saved detail categories, hides removed items, and recalculates the
   assert.equal(report.A13.v, '전기료');
   assert.equal(report.C13.v, 220000);
   assert.equal(report.C19.v, 325250);
+  assert.equal(/<c\b[^>]*\bt="[^"]*"[^>]*\bt="/.test(sheetXml), false);
+  assert.match(sheetXml, /<c r="A11" s="14" t="inlineStr">/);
   assert.equal(report['!rows'][14].hidden, true);
   assert.equal(report['!rows'][16].hidden, true);
 });
