@@ -8,7 +8,9 @@ const tauriBin = join(process.cwd(), 'node_modules', '.bin', executable);
 const path = [cargoBin, process.env.PATH].filter(Boolean).join(delimiter);
 const result = spawnSync(tauriBin, process.argv.slice(2), {
   stdio: 'inherit',
-  env: { ...process.env, PATH: path }
+  env: { ...process.env, PATH: path },
+  // Windows cannot execute the npm-generated tauri.cmd shim directly.
+  shell: process.platform === 'win32'
 });
 
 if (result.error) {
