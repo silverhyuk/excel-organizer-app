@@ -15,9 +15,24 @@ import {
   FileSpreadsheet,
   AlertCircle
 } from 'lucide-react';
-import { parseExcelTransactions, exportToExcel } from './utils/excelParser';
+import { parseExcelTransactions, exportToExcel, SUMMARY_ROW_OPTIONS } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
 import baldDancerImg from './assets/bald_dancer.jpg';
+import reportTemplateUrl from '../result.xlsx?url';
+
+const SUMMARY_ROWS_STORAGE_KEY = 'excel_organizer_summary_rows';
+
+function getSavedSummaryRows() {
+  const defaults = SUMMARY_ROW_OPTIONS.map(summary => summary.id);
+  try {
+    const saved = JSON.parse(localStorage.getItem(SUMMARY_ROWS_STORAGE_KEY));
+    return Array.isArray(saved)
+      ? defaults.filter(id => saved.includes(id))
+      : defaults;
+  } catch {
+    return defaults;
+  }
+}
 
 function App() {
   const [transactions, setTransactions] = useState([]);
@@ -25,6 +40,8 @@ function App() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [enabledSummaryRows, setEnabledSummaryRows] = useState(getSavedSummaryRows);
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -114,11 +131,14 @@ function App() {
   };
 
   // Export current transactions to excel
-  const handleExport = () => {
+  const handleExport = async () => {
     if (transactions.length === 0) return;
     
     try {
-      const buffer = exportToExcel(transactions, rules);
+      const templateResponse = await fetch(reportTemplateUrl);
+      if (!templateResponse.ok) throw new Error('기준 양식을 불러오지 못했습니다.');
+      const templateBuffer = await templateResponse.arrayBuffer();
+      const buffer = await exportToExcel(transactions, rules, templateBuffer, { enabledSummaryRows });
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -129,8 +149,25 @@ function App() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert('엑셀 내보내기 중 오류가 발생했습니다.');
+      console.error(err);
+      alert(err.message || '엑셀 내보내기 중 오류가 발생했습니다.');
     }
+  };
+
+  const updateSummaryRows = (nextRows) => {
+    setEnabledSummaryRows(nextRows);
+    localStorage.setItem(SUMMARY_ROWS_STORAGE_KEY, JSON.stringify(nextRows));
+  };
+
+  const handleRemoveSummaryRow = (summaryId) => {
+    updateSummaryRows(enabledSummaryRows.filter(id => id !== summaryId));
+  };
+
+  const handleAddSummaryRow = (summaryId) => {
+    const enabled = new Set([...enabledSummaryRows, summaryId]);
+    updateSummaryRows(
+      SUMMARY_ROW_OPTIONS.map(summary => summary.id).filter(id => enabled.has(id))
+    );
   };
 
   // Add keyword to current editing category
@@ -360,14 +397,24 @@ function App() {
             <div className="glass-panel sidebar-panel">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>지출 카테고리</h3>
-                <button 
-                  className="secondary" 
-                  style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
-                  onClick={() => setIsRulesModalOpen(true)}
-                  id="btn-rules-manager"
-                >
-                  <Sliders size={12} /> 분류규칙 설정
-                </button>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    className="secondary"
+                    style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                    onClick={() => setIsSummaryModalOpen(true)}
+                    id="btn-summary-manager"
+                  >
+                    <Plus size={12} /> 요약행 설정
+                  </button>
+                  <button
+                    className="secondary"
+                    style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                    onClick={() => setIsRulesModalOpen(true)}
+                    id="btn-rules-manager"
+                  >
+                    <Sliders size={12} /> 분류규칙 설정
+                  </button>
+                </div>
               </div>
 
               <div className="category-list">
@@ -604,6 +651,55 @@ function App() {
               <button onClick={() => setIsRulesModalOpen(false)}>
                 설정 완료
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Summary Row Manager Modal */}
+      {isSummaryModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsSummaryModalOpen(false)}>
+          <div className="modal-content glass-panel" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>엑셀 요약행 설정</h3>
+                <p style={{ marginTop: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                  다운로드할 보고서에 표시할 요약행을 선택하세요.
+                </p>
+              </div>
+              <button className="secondary" style={{ padding: '0.25rem', borderRadius: '50%' }} onClick={() => setIsSummaryModalOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="summary-row-list">
+              {SUMMARY_ROW_OPTIONS.map(summary => {
+                const isEnabled = enabledSummaryRows.includes(summary.id);
+                return (
+                  <div className="summary-row-item" key={summary.id}>
+                    <div>
+                      <strong>{summary.label}</strong>
+                      <span>Excel {summary.row}행</span>
+                    </div>
+                    {isEnabled ? (
+                      <button className="secondary danger" onClick={() => handleRemoveSummaryRow(summary.id)}>
+                        <Trash2 size={14} /> 빼기
+                      </button>
+                    ) : (
+                      <button onClick={() => handleAddSummaryRow(summary.id)}>
+                        <Plus size={14} /> 추가
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-glass)', paddingTop: '1.25rem', marginTop: '1.25rem' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                {enabledSummaryRows.length}개 요약행 표시 중
+              </span>
+              <button onClick={() => setIsSummaryModalOpen(false)}>설정 완료</button>
             </div>
           </div>
         </div>

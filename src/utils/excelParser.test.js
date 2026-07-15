@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import test from 'node:test';
 import * as XLSX from 'xlsx';
 
@@ -21,7 +22,7 @@ test('keeps the exact withdrawal column when an input/output bank column follows
   assert.equal(transactions.reduce((sum, tx) => sum + tx.deposit, 0), 250000);
 });
 
-test('exports summary values, consumes duplicate payees once, and creates the report layout', () => {
+test('exports summary values while preserving the exact result.xlsx layout', async () => {
   const transactions = [
     { date: '2026-06-01', description: '예약 매출', withdrawal: 0, deposit: 250000, balance: 250000, category: 'etc' },
     { date: '2026-06-02', description: '003윤영기', withdrawal: 1870000, deposit: 0, balance: 0, category: 'etc' },
@@ -29,8 +30,10 @@ test('exports summary values, consumes duplicate payees once, and creates the re
     { date: '2026-06-04', description: '홍현기', withdrawal: 660000, deposit: 0, balance: 0, category: 'etc' },
     { date: '2026-06-05', description: '홍현기', withdrawal: 1320000, deposit: 0, balance: 0, category: 'etc' }
   ];
-  const workbook = XLSX.read(exportToExcel(transactions, {}), { type: 'array' });
-  const report = workbook.Sheets['호텔 월 정산'];
+  const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
+  const output = await exportToExcel(transactions, {}, template);
+  const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
+  const report = workbook.Sheets['Sheet1'];
 
   assert.equal(report.C5.v, 250000);
   assert.equal(report.C7.v, 1870000);
@@ -39,5 +42,32 @@ test('exports summary values, consumes duplicate payees once, and creates the re
   assert.equal(report.C85.v, 1320000);
   assert.equal(report.C95.v, 1980000);
   assert.equal(report['!merges'].length, 136);
-  assert.equal(workbook.Sheets['상세 거래 내역']['!ref'], 'A1:G6');
+  assert.deepEqual(workbook.SheetNames, ['Sheet1']);
+  assert.equal(report.A1.v, '호텔 월 정산');
+  assert.deepEqual(
+    ['A9', 'A19', 'A23', 'A31', 'A81', 'A95'].map(cell => report[cell].v),
+    ['총 급여', '공과금', '지출카드 ', '광고비', '지출', '기타잡비']
+  );
+  assert.deepEqual(
+    ['C9', 'C19', 'C23', 'C31', 'C81', 'C95'].map(cell => report[cell].f),
+    ['SUM(C7)', 'SUM(C11:F18)', 'SUM(C21)', 'SUM(C25:F30)', 'SUM(C33:F80)', 'SUM(C83:F94)']
+  );
+  assert.equal(report.C5.z, '_-* #,##0_-;\\-* #,##0_-;_-* "-"_-;_-@_-');
+  assert.equal(report['!rows'][3].hpt, 20.25);
+});
+
+test('can remove and add predefined summary rows without changing report structure', async () => {
+  const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
+  const output = await exportToExcel([], {}, template, {
+    enabledSummaryRows: ['salary', 'card', 'advertising', 'expenses', 'misc']
+  });
+  const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
+  const report = workbook.Sheets.Sheet1;
+
+  assert.equal(report['!rows'][18].hidden, true);
+  assert.equal(report['!rows'][19].hidden, true);
+  assert.equal(report['!rows'][8].hidden, undefined);
+  assert.equal(report.A19.v, '공과금');
+  assert.equal(report.C19.f, 'SUM(C11:F18)');
+  assert.equal(report['!merges'].length, 136);
 });

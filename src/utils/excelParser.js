@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import JSZip from 'jszip';
 
 /**
  * Standardize column keys to help map varying bank formats
@@ -247,6 +248,15 @@ const REPORT_TEMPLATE = [
   { row: 95, type: "formula", formula: "SUM(C83:F94)", cells: { A: "기타잡비" } }
 ];
 
+export const SUMMARY_ROW_OPTIONS = [
+  { id: 'salary', row: 9, label: '총 급여' },
+  { id: 'utilities', row: 19, label: '공과금' },
+  { id: 'card', row: 23, label: '지출카드' },
+  { id: 'advertising', row: 31, label: '광고비' },
+  { id: 'expenses', row: 81, label: '지출' },
+  { id: 'misc', row: 95, label: '기타잡비' }
+];
+
 // Helper to clean descriptions/keywords for matching
 function normalizeText(str) {
   if (!str) return '';
@@ -331,20 +341,7 @@ function checkKeywordMatch(desc, keyword) {
  * @param {object} rules 
  * @returns {ArrayBuffer} 
  */
-export function exportToExcel(transactions, rules) {
-  // --- 1. SHEET 1: 호텔 월 정산 (Summary Report) ---
-  const worksheetReport = {};
-  const maxRow = 96;
-  const maxCol = 8; // Column I (index 8)
-  
-  // Initialize grid with blank strings
-  for (let r = 0; r < maxRow; r++) {
-    for (let c = 0; c <= maxCol; c++) {
-      const cellRef = XLSX.utils.encode_cell({ r, c });
-      worksheetReport[cellRef] = { t: 's', v: '' };
-    }
-  }
-  
+async function calculateReportValues(transactions) {
   const cValues = {};
   const expenseItems = REPORT_TEMPLATE.filter(item => item.type === 'expense');
   const keywordCounts = expenseItems.reduce((counts, item) => {
@@ -356,22 +353,9 @@ export function exportToExcel(transactions, rules) {
   
   // A. Build static and raw data cells
   REPORT_TEMPLATE.forEach(item => {
-    const rIdx = item.row - 1;
-    
-    Object.entries(item.cells).forEach(([colLetter, val]) => {
-      const cIdx = colLetter.charCodeAt(0) - 65;
-      const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: cIdx });
-      worksheetReport[cellRef] = {
-        t: typeof val === 'number' ? 'n' : 's',
-        v: val
-      };
-    });
-    
     // Fill calculated values in Column C
     if (item.type === 'total_revenue') {
       const totalDeposits = transactions.reduce((sum, tx) => sum + tx.deposit, 0);
-      const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: 2 });
-      worksheetReport[cellRef] = { t: 'n', v: totalDeposits };
       cValues[item.row] = totalDeposits;
     }
     
@@ -392,8 +376,6 @@ export function exportToExcel(transactions, rules) {
         })
         .reduce((sum, tx) => sum + tx.withdrawal, 0);
         
-      const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: 2 });
-      worksheetReport[cellRef] = { t: 'n', v: salarySum };
       cValues[item.row] = salarySum;
     }
     
@@ -436,8 +418,6 @@ export function exportToExcel(transactions, rules) {
         }
       }
       
-      const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: 2 });
-      worksheetReport[cellRef] = { t: 'n', v: expenseSum };
       cValues[item.row] = expenseSum;
     }
   });
@@ -445,9 +425,6 @@ export function exportToExcel(transactions, rules) {
   // B. Process formula evaluation
   REPORT_TEMPLATE.forEach(item => {
     if (item.type === 'formula') {
-      const rIdx = item.row - 1;
-      const cellRef = XLSX.utils.encode_cell({ r: rIdx, c: 2 });
-      
       let sumValue = 0;
       if (item.formula === 'SUM(C7)') {
         sumValue = cValues[7] || 0;
@@ -463,84 +440,74 @@ export function exportToExcel(transactions, rules) {
         for (let i = 83; i <= 94; i++) sumValue += cValues[i] || 0;
       }
       
-      worksheetReport[cellRef] = {
-        t: 'n',
-        v: sumValue,
-        f: item.formula
-      };
       cValues[item.row] = sumValue;
     }
   });
-  
-  // Set bounds and Column Widths for Sheet 1
-  worksheetReport['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxRow - 1, c: maxCol } });
-  worksheetReport['!cols'] = [
-    { wch: 18 }, // A: 목차
-    { wch: 4 },  // B: (공백)
-    { wch: 15 }, // C: 금액
-    { wch: 4 },  // D: (공백)
-    { wch: 4 },  // E: (공백)
-    { wch: 4 },  // F: (공백)
-    { wch: 25 }, // G: 비고
-    { wch: 8 },  // H: (공백)
-    { wch: 8 }   // I: (공백)
-  ];
-  worksheetReport['!rows'] = Array.from({ length: maxRow }, (_, index) => ({
-    hpt: index < 3 ? 24 : 18
-  }));
 
-  const merges = [
-    { s: { r: 0, c: 0 }, e: { r: 2, c: 8 } },
-    { s: { r: 3, c: 0 }, e: { r: 3, c: 1 } },
-    { s: { r: 3, c: 2 }, e: { r: 3, c: 5 } },
-    { s: { r: 3, c: 6 }, e: { r: 3, c: 8 } }
-  ];
+  return cValues;
+}
 
-  REPORT_TEMPLATE.filter(item => item.row >= 5).forEach(item => {
-    const startRow = item.row - 1;
-    merges.push({ s: { r: startRow, c: 0 }, e: { r: startRow + 1, c: 1 } });
-    if (item.type === 'formula') {
-      merges.push({ s: { r: startRow, c: 2 }, e: { r: startRow + 1, c: 8 } });
-    } else {
-      merges.push({ s: { r: startRow, c: 2 }, e: { r: startRow + 1, c: 5 } });
-      merges.push({ s: { r: startRow, c: 6 }, e: { r: startRow + 1, c: 8 } });
-    }
-  });
-  worksheetReport['!merges'] = merges;
-
-  for (const item of REPORT_TEMPLATE) {
-    if (item.row < 5) continue;
-    const amountCell = worksheetReport[`C${item.row}`];
-    if (amountCell) amountCell.z = '#,##0';
+function replaceCellValue(sheetXml, cellRef, value) {
+  const cellPattern = new RegExp(`(<c\\s+[^>]*r="${cellRef}"[^>]*>[\\s\\S]*?<v>)([^<]*)(</v>)`);
+  if (!cellPattern.test(sheetXml)) {
+    throw new Error(`기준 양식에서 ${cellRef} 셀을 찾을 수 없습니다.`);
   }
-  
-  // --- 2. SHEET 2: 상세 거래 내역 (Detail Classified List) ---
-  const exportData = transactions.map((tx, idx) => ({
-    '번호': idx + 1,
-    '거래일시': tx.date,
-    '거래처/적요': tx.description,
-    '분류 카테고리': rules[tx.category]?.name || '미분류',
-    '출금액(지출)': tx.withdrawal || 0,
-    '입금액(수입)': tx.deposit || 0,
-    '잔액': tx.balance || 0
-  }));
-  
-  const worksheetDetails = XLSX.utils.json_to_sheet(exportData);
-  worksheetDetails['!cols'] = [
-    { wch: 6 },  // 번호
-    { wch: 20 }, // 거래일시
-    { wch: 25 }, // 거래처/적요
-    { wch: 15 }, // 분류 카테고리
-    { wch: 15 }, // 출금액
-    { wch: 15 }, // 입금액
-    { wch: 15 }  // 잔액
-  ];
-  
-  // --- 3. Assemble Workbook ---
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheetReport, '호텔 월 정산');
-  XLSX.utils.book_append_sheet(workbook, worksheetDetails, '상세 거래 내역');
-  
-  const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-  return excelBuffer;
+  return sheetXml.replace(cellPattern, `$1${value}$3`);
+}
+
+function hideDisabledSummaryRows(sheetXml, enabledSummaryRows) {
+  const enabled = new Set(enabledSummaryRows);
+
+  for (const summary of SUMMARY_ROW_OPTIONS) {
+    if (enabled.has(summary.id)) continue;
+
+    for (const rowNumber of [summary.row, summary.row + 1]) {
+      const rowPattern = new RegExp(`<row\\s+([^>]*\\br="${rowNumber}"[^>]*)>`);
+      sheetXml = sheetXml.replace(rowPattern, (rowTag, attributes) => {
+        const withoutHidden = attributes.replace(/\\s+hidden="[^"]*"/g, '');
+        return `<row ${withoutHidden} hidden="1">`;
+      });
+    }
+  }
+
+  return sheetXml;
+}
+
+/**
+ * Fill calculated values into the original result.xlsx package. Editing only
+ * sheet XML keeps the template's styles, borders, merges and print settings.
+ * @param {Array} transactions
+ * @param {object} rules
+ * @param {ArrayBuffer|Uint8Array} templateBuffer
+ * @param {{ enabledSummaryRows?: string[] }} options
+ * @returns {Promise<ArrayBuffer>}
+ */
+export async function exportToExcel(transactions, rules, templateBuffer, options = {}) {
+  if (!templateBuffer) {
+    throw new Error('result.xlsx 기준 양식을 불러오지 못했습니다.');
+  }
+
+  const cValues = await calculateReportValues(transactions);
+  const zip = await JSZip.loadAsync(templateBuffer);
+  const sheetPath = 'xl/worksheets/sheet1.xml';
+  const sheetFile = zip.file(sheetPath);
+  if (!sheetFile) {
+    throw new Error('result.xlsx 기준 양식의 첫 번째 시트를 찾을 수 없습니다.');
+  }
+
+  let sheetXml = await sheetFile.async('string');
+  for (const item of REPORT_TEMPLATE) {
+    if (item.row < 5 || cValues[item.row] === undefined) continue;
+    sheetXml = replaceCellValue(sheetXml, `C${item.row}`, cValues[item.row]);
+  }
+  const enabledSummaryRows = options.enabledSummaryRows
+    ?? SUMMARY_ROW_OPTIONS.map(summary => summary.id);
+  sheetXml = hideDisabledSummaryRows(sheetXml, enabledSummaryRows);
+  zip.file(sheetPath, sheetXml);
+
+  return zip.generateAsync({
+    type: 'arraybuffer',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 }
+  });
 }
