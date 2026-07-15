@@ -464,14 +464,35 @@ function escapeXml(value) {
     .replace(/'/g, '&apos;');
 }
 
-function replaceCellText(sheetXml, cellRef, value) {
+function createSharedStringWriter(sharedStringsXml) {
+  const initialUniqueCount = Number(sharedStringsXml.match(/uniqueCount="(\d+)"/)?.[1] || 0);
+  const additions = [];
+  const additionIndexes = new Map();
+  return {
+    add(value) {
+      const text = String(value);
+      if (additionIndexes.has(text)) return additionIndexes.get(text);
+      additions.push(`<si><t>${escapeXml(value)}</t></si>`);
+      const index = initialUniqueCount + additions.length - 1;
+      additionIndexes.set(text, index);
+      return index;
+    },
+    toXml() {
+      return sharedStringsXml
+        .replace(/uniqueCount="\d+"/, `uniqueCount="${initialUniqueCount + additions.length}"`)
+        .replace('</sst>', `${additions.join('')}</sst>`);
+    }
+  };
+}
+
+function replaceCellText(sheetXml, cellRef, value, sharedStrings) {
   const cellPattern = new RegExp(`(<c\\s+[^>]*r="${cellRef}"[^>/]*)(?:\\s*/>|>[\\s\\S]*?</c>)`);
   if (!cellPattern.test(sheetXml)) {
     throw new Error(`기준 양식에서 ${cellRef} 셀을 찾을 수 없습니다.`);
   }
   return sheetXml.replace(cellPattern, (_, opening) => {
-    const inlineOpening = opening.replace(/\s+t="[^"]*"/g, '') + ' t="inlineStr"';
-    return `${inlineOpening}><is><t>${escapeXml(value)}</t></is></c>`;
+    const sharedStringOpening = opening.replace(/\s+t="[^"]*"/g, '') + ' t="s"';
+    return `${sharedStringOpening}><v>${sharedStrings.add(value)}</v></c>`;
   });
 }
 
@@ -534,26 +555,26 @@ function calculateConfiguredDetails(transactions, reportCategories) {
   });
 }
 
-function applyConfiguredReport(sheetXml, transactions, reportCategories) {
+function applyConfiguredReport(sheetXml, transactions, reportCategories, sharedStrings) {
   const configured = calculateConfiguredDetails(transactions, reportCategories);
   sheetXml = replaceCellValue(sheetXml, 'C5', transactions.reduce((sum, tx) => sum + tx.deposit, 0));
 
   for (const category of configured) {
     category.detailRows.forEach((row, index) => {
       const detail = category.details[index];
-      if (detail) {
-        sheetXml = replaceCellText(sheetXml, `A${row}`, detail.label);
-        sheetXml = replaceCellText(sheetXml, `G${row}`, detail.keyword);
+      if (detail && detail.value > 0) {
+        sheetXml = replaceCellText(sheetXml, `A${row}`, detail.label, sharedStrings);
+        sheetXml = replaceCellText(sheetXml, `G${row}`, detail.keyword, sharedStrings);
         sheetXml = replaceCellValue(sheetXml, `C${row}`, detail.value);
         sheetXml = setRowsHidden(sheetXml, [row, row + 1], false);
       } else {
-        sheetXml = replaceCellText(sheetXml, `A${row}`, '');
-        sheetXml = replaceCellText(sheetXml, `G${row}`, '');
+        sheetXml = replaceCellText(sheetXml, `A${row}`, '', sharedStrings);
+        sheetXml = replaceCellText(sheetXml, `G${row}`, '', sharedStrings);
         sheetXml = replaceCellValue(sheetXml, `C${row}`, 0);
         sheetXml = setRowsHidden(sheetXml, [row, row + 1], true);
       }
     });
-    sheetXml = replaceCellText(sheetXml, `A${category.summaryRow}`, category.id === 'salary' ? '총 급여' : category.label);
+    sheetXml = replaceCellText(sheetXml, `A${category.summaryRow}`, category.id === 'salary' ? '총 급여' : category.label, sharedStrings);
     sheetXml = replaceCellValue(sheetXml, `C${category.summaryRow}`, category.total);
   }
   return sheetXml;
@@ -600,7 +621,12 @@ export async function exportToExcel(transactions, rules, templateBuffer, options
 
   let sheetXml = await sheetFile.async('string');
   if (Array.isArray(options.reportCategories)) {
-    sheetXml = applyConfiguredReport(sheetXml, transactions, options.reportCategories);
+    const sharedStringsPath = 'xl/sharedStrings.xml';
+    const sharedStringsFile = zip.file(sharedStringsPath);
+    if (!sharedStringsFile) throw new Error('result.xlsx 기준 양식의 공유 문자열을 찾을 수 없습니다.');
+    const sharedStrings = createSharedStringWriter(await sharedStringsFile.async('string'));
+    sheetXml = applyConfiguredReport(sheetXml, transactions, options.reportCategories, sharedStrings);
+    zip.file(sharedStringsPath, sharedStrings.toXml());
   } else {
     const cValues = await calculateReportValues(transactions);
     for (const item of REPORT_TEMPLATE) {

@@ -90,6 +90,7 @@ test('exports saved detail categories, hides removed items, and recalculates the
   const output = await exportToExcel(transactions, {}, template, { reportCategories: categories });
   const zip = await JSZip.loadAsync(output);
   const sheetXml = await zip.file('xl/worksheets/sheet1.xml').async('string');
+  const sharedStringsXml = await zip.file('xl/sharedStrings.xml').async('string');
   const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
   const report = workbook.Sheets.Sheet1;
 
@@ -100,7 +101,12 @@ test('exports saved detail categories, hides removed items, and recalculates the
   assert.equal(report.C13.v, 220000);
   assert.equal(report.C19.v, 325250);
   assert.equal(/<c\b[^>]*\bt="[^"]*"[^>]*\bt="/.test(sheetXml), false);
-  assert.match(sheetXml, /<c r="A11" s="14" t="inlineStr">/);
+  assert.match(sheetXml, /<c r="A11" s="14" t="s"><v>\d+<\/v><\/c>/);
+  assert.match(sharedStringsXml, /<si><t>도시가스<\/t><\/si>/);
+  assert.equal(sheetXml.includes('inlineStr'), false);
   assert.equal(report['!rows'][14].hidden, true);
   assert.equal(report['!rows'][16].hidden, true);
+  assert.equal(report['!rows'][20].hidden, true);
+  assert.equal(report.A21.v, '');
+  assert.equal(report.G21.v, '');
 });
