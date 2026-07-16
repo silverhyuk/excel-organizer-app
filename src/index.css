@@ -383,12 +383,39 @@ header {
 }
 
 .review-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.7rem 0.9rem;
   border: 1px solid rgba(16, 185, 129, 0.22);
   border-radius: 8px;
   background: rgba(16, 185, 129, 0.08);
   color: #6ee7b7;
   font-size: 0.82rem;
+}
+
+.review-status.info {
+  border-color: rgba(59, 130, 246, 0.22);
+  background: rgba(59, 130, 246, 0.08);
+  color: #93c5fd;
+}
+
+.review-status.error {
+  border-color: rgba(244, 63, 94, 0.22);
+  background: rgba(244, 63, 94, 0.08);
+  color: #fda4af;
+}
+
+.review-status-close,
+.review-status-close:hover {
+  flex: 0 0 auto;
+  padding: 0.2rem;
+  border: 0;
+  background: transparent;
+  color: currentColor;
+  box-shadow: none;
+  transform: none;
 }
 
 .review-badge {

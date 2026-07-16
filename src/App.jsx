@@ -55,7 +55,7 @@ function App() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [reviewMode, setReviewMode] = useState('all');
   const [learningTransactionIds, setLearningTransactionIds] = useState(() => new Set());
-  const [reviewStatus, setReviewStatus] = useState('');
+  const [reviewStatus, setReviewStatus] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
@@ -99,6 +99,12 @@ function App() {
     });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (reviewStatus?.type !== 'success') return undefined;
+    const timeoutId = window.setTimeout(() => setReviewStatus(null), 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [reviewStatus]);
 
   // Re-classify all transactions when rules change or new transactions load
   useEffect(() => {
@@ -162,7 +168,7 @@ function App() {
       setSelectedCategory('all');
       setReviewMode('all');
       setLearningTransactionIds(new Set());
-      setReviewStatus('');
+      setReviewStatus(null);
     } catch (err) {
       console.error(err);
       setErrorMsg(err.message || '엑셀 파일을 읽는 과정에서 오류가 발생했습니다.');
@@ -357,7 +363,7 @@ function App() {
   const handleManualCategoryChange = async (txId, categoryId) => {
     const transaction = transactions.find(tx => tx.id === txId);
     const shouldLearn = learningTransactionIds.has(txId) && categoryId !== 'misc';
-    setReviewStatus('');
+    setReviewStatus(null);
     setTransactions(current => current.map(tx => (
       tx.id === txId ? { ...tx, categoryOverride: categoryId } : tx
     )));
@@ -366,7 +372,7 @@ function App() {
     try {
       const learned = addLearnedVendorRule(reportCategories, categoryId, transaction.description);
       if (!learned.added) {
-        setReviewStatus('이미 같은 거래처에 적용되는 규칙이 있습니다.');
+        setReviewStatus({ type: 'info', message: '이미 같은 거래처에 적용되는 규칙이 있습니다.' });
         return;
       }
       const saved = await saveReportCategories(learned.categories);
@@ -375,7 +381,10 @@ function App() {
         tx.id === txId ? { ...tx, categoryOverride: undefined } : tx
       )));
       const categoryLabel = saved.find(category => category.id === categoryId)?.label || '선택한 카테고리';
-      setReviewStatus(`'${transaction.description}' 거래처를 ${categoryLabel} 규칙으로 저장했습니다.`);
+      setReviewStatus({
+        type: 'success',
+        message: `'${transaction.description}' 거래처를 ${categoryLabel} 규칙으로 저장했습니다.`
+      });
       setLearningTransactionIds(current => {
         const next = new Set(current);
         next.delete(txId);
@@ -383,7 +392,7 @@ function App() {
       });
     } catch (error) {
       console.error(error);
-      setReviewStatus(error.message || '거래처 규칙을 저장하지 못했습니다.');
+      setReviewStatus({ type: 'error', message: error.message || '거래처 규칙을 저장하지 못했습니다.' });
     }
   };
 
@@ -409,7 +418,7 @@ function App() {
     setErrorMsg('');
     setReviewMode('all');
     setLearningTransactionIds(new Set());
-    setReviewStatus('');
+    setReviewStatus(null);
   };
 
   // Calculations for Stats
@@ -721,7 +730,14 @@ function App() {
                 </div>
               </div>
 
-              {reviewStatus && <div className="review-status">{reviewStatus}</div>}
+              {reviewStatus && (
+                <div className={`review-status ${reviewStatus.type}`} role="status">
+                  <span>{reviewStatus.message}</span>
+                  <button className="review-status-close" onClick={() => setReviewStatus(null)} aria-label="안내 닫기">
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
 
               {/* Transactions Table */}
               <div className="table-container">
