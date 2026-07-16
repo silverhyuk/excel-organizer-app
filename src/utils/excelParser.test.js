@@ -189,6 +189,56 @@ test('uses the same major category totals for the dashboard and exported report'
   assert.deepEqual(view.assignments, ['utilities', 'misc', 'income']);
   assert.equal(view.categories.find(category => category.id === 'utilities').total, 105250);
   assert.equal(view.categories.find(category => category.id === 'misc').total, 330000);
+  assert.deepEqual(view.unclassifiedIndexes, [1]);
+});
+
+test('uses aliases and match types and reports rule conflicts in priority order', () => {
+  const categories = [
+    {
+      id: 'utilities',
+      label: '공과금',
+      details: [{ id: 'electricity', label: '전기', keyword: '한국전력공사', aliases: ['한전'], matchType: 'contains' }]
+    },
+    {
+      id: 'expenses',
+      label: '지출',
+      details: [{ id: 'power', label: '전력비', keyword: '^011.*한전', aliases: [], matchType: 'regex' }]
+    },
+    { id: 'misc', label: '기타잡비', details: [] }
+  ];
+  const transactions = [
+    { description: '011 ㈜한전 전기요금', withdrawal: 220000, deposit: 0 },
+    { description: '등록되지 않은 거래처', withdrawal: 330000, deposit: 0 }
+  ];
+
+  const view = calculateReportCategoryView(transactions, categories);
+
+  assert.deepEqual(view.assignments, ['utilities', 'misc']);
+  assert.deepEqual(view.unclassifiedIndexes, [1]);
+  assert.equal(view.conflicts.length, 1);
+  assert.deepEqual(view.conflicts[0].matches.map(match => match.categoryId), ['utilities', 'expenses']);
+});
+
+test('exports transactions matched by an alias with the configured match type', async () => {
+  const categories = [
+    {
+      id: 'utilities',
+      label: '공과금',
+      details: [{ id: 'electricity', label: '전기', keyword: '한국전력공사', aliases: ['한전'], matchType: 'exact' }]
+    },
+    { id: 'misc', label: '기타잡비', details: [] }
+  ];
+  const transactions = [{ description: '011 ㈜한전', withdrawal: 220000, deposit: 0 }];
+  const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
+
+  const output = await exportToExcel(transactions, {}, template, { reportCategories: categories });
+  const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
+  const report = workbook.Sheets.Sheet1;
+
+  assert.equal(report.A7.v, '전기');
+  assert.equal(report.C7.v, 220000);
+  assert.equal(report.C9.v, 220000);
+  assert.equal(report.C11.v, 0);
 });
 
 test('manual category overrides take precedence over salary name detection', () => {

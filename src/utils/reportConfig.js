@@ -1,4 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
+import {
+  createLearnedVendorDetail,
+  matchesDetail,
+  normalizeMatchType,
+  validateMatchPattern
+} from './vendorMatcher.js';
 
 const BROWSER_STORAGE_KEY = 'excel_organizer_report_categories';
 
@@ -84,12 +90,21 @@ export function normalizeReportCategories(config) {
       id,
       label: String(category.label || fallbackLabel).trim() || fallbackLabel,
       enabled: id === 'misc' || category.enabled !== false,
-      details: details.map(detail => ({
-        id: String(detail?.id || createId('detail')),
-        label: String(detail?.label || '').trim(),
-        keyword: String(detail?.keyword || '').trim(),
-        ...(detail?.matchType === 'salary' ? { matchType: 'salary' } : {})
-      })).filter(detail => detail.label)
+      details: details.map(detail => {
+        const keyword = String(detail?.keyword || '').trim();
+        const aliases = [...new Set(
+          (Array.isArray(detail?.aliases) ? detail.aliases : [])
+            .map(alias => String(alias || '').trim())
+            .filter(alias => alias && alias !== keyword)
+        )];
+        return {
+          id: String(detail?.id || createId('detail')),
+          label: String(detail?.label || '').trim(),
+          keyword,
+          aliases,
+          matchType: detail?.matchType === 'salary' ? 'salary' : normalizeMatchType(detail?.matchType)
+        };
+      }).filter(detail => detail.label)
     };
   }).filter(Boolean);
 
@@ -97,6 +112,33 @@ export function normalizeReportCategories(config) {
     normalized.push(structuredClone(DEFAULT_REPORT_CATEGORIES.find(category => category.id === 'misc')));
   }
   return normalized;
+}
+
+export function validateReportCategories(categories) {
+  for (const category of categories) {
+    for (const detail of category.details) {
+      if (detail.matchType !== 'regex') continue;
+      for (const pattern of [detail.keyword, ...(detail.aliases || [])].filter(Boolean)) {
+        const error = validateMatchPattern(pattern, detail.matchType);
+        if (error) return `${category.label} > ${detail.label}: ${error}`;
+      }
+    }
+  }
+  return '';
+}
+
+export function addLearnedVendorRule(categories, categoryId, description) {
+  const category = categories.find(item => item.id === categoryId && item.enabled !== false);
+  if (!category || category.details.some(detail => matchesDetail(description, detail))) {
+    return { categories, added: false };
+  }
+  const learnedDetail = createLearnedVendorDetail(description);
+  return {
+    added: true,
+    categories: categories.map(item => (
+      item.id === categoryId ? { ...item, details: [...item.details, learnedDetail] } : item
+    ))
+  };
 }
 
 export async function loadReportCategories() {
@@ -112,6 +154,8 @@ export async function loadReportCategories() {
 
 export async function saveReportCategories(categories) {
   const normalized = normalizeReportCategories(categories);
+  const validationError = validateReportCategories(normalized);
+  if (validationError) throw new Error(validationError);
   const serialized = JSON.stringify(normalized, null, 2);
   try {
     await invoke('save_report_config', { config: serialized });

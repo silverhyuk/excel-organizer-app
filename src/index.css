@@ -247,6 +247,46 @@ header {
   gap: 0.75rem;
 }
 
+.review-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.045);
+}
+
+.review-queue-title,
+.review-queue-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.review-queue-title {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.review-queue-title span {
+  color: #f59e0b;
+}
+
+.review-queue-button {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+}
+
+.review-queue-button.active {
+  border-color: #f59e0b;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.15);
+}
+
 .category-group {
   display: flex;
   flex-direction: column;
@@ -340,6 +380,62 @@ header {
 .table-container {
   overflow-x: auto;
   border-radius: 8px;
+}
+
+.review-status {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.08);
+  color: #6ee7b7;
+  font-size: 0.82rem;
+}
+
+.review-badge {
+  display: inline-flex;
+  margin-top: 0.35rem;
+  margin-right: 0.35rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.review-badge.unclassified {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.review-badge.conflict {
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.12);
+}
+
+.transaction-category-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.transaction-category-editor select {
+  min-width: 115px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.learn-vendor-option {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.learn-vendor-option input {
+  width: auto;
 }
 
 table {
@@ -451,6 +547,10 @@ button.danger:hover {
   padding: 2rem;
 }
 
+.report-settings-modal {
+  max-width: 920px;
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -464,7 +564,7 @@ button.danger:hover {
   color: var(--text-secondary);
 }
 
-input, select {
+input, select, textarea {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-glass);
   border-radius: 8px;
@@ -475,7 +575,7 @@ input, select {
   transition: var(--transition-smooth);
 }
 
-input:focus, select:focus {
+input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--accent-purple);
   box-shadow: 0 0 8px rgba(138, 92, 246, 0.25);
@@ -626,17 +726,34 @@ input:focus, select:focus {
 }
 
 .report-detail-item,
-.report-detail-add {
+.report-detail-add,
+.report-detail-columns {
   display: grid;
-  grid-template-columns: minmax(120px, 0.9fr) minmax(170px, 1.2fr) auto;
+  grid-template-columns: minmax(120px, 0.75fr) minmax(110px, 0.45fr) minmax(260px, 1.4fr) auto;
   gap: 0.5rem;
   align-items: center;
 }
 
+.report-detail-columns {
+  padding: 0 0.1rem 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
 .report-detail-item input,
-.report-detail-add input {
+.report-detail-add input,
+.report-detail-item textarea,
+.report-detail-add textarea,
+.report-detail-item select,
+.report-detail-add select {
   min-width: 0;
   padding: 0.6rem 0.75rem;
+}
+
+.report-detail-item textarea,
+.report-detail-add textarea {
+  min-height: 58px;
+  resize: vertical;
 }
 
 .report-detail-item button {
@@ -653,6 +770,14 @@ input:focus, select:focus {
   margin-top: 0.6rem;
   color: var(--text-muted);
   font-size: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .report-detail-columns { display: none; }
+  .report-detail-item,
+  .report-detail-add { grid-template-columns: 1fr; }
+  .report-detail-item button,
+  .report-detail-add button { justify-content: center; }
 }
 
 /* Custom visual chart component */

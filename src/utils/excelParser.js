@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
+import { getDetailRuleKey, matchesDetail, normalizeVendorText } from './vendorMatcher.js';
 
 /**
  * Standardize column keys to help map varying bank formats
@@ -498,6 +499,19 @@ function calculateConfiguredDetails(transactions, reportCategories) {
   const manualTotals = new Map();
   const keywordTotals = new Map();
   const keywordIndexes = new Map();
+  const conflicts = transactions.flatMap((transaction, transactionIndex) => {
+    if (!(transaction.withdrawal > 0) || transaction.categoryOverride) return [];
+    const matches = activeCategories.flatMap(category => category.details
+      .filter(detail => detail.matchType !== 'salary' && matchesDetail(transaction.description, detail))
+      .map(detail => ({
+        categoryId: category.id,
+        categoryLabel: category.label,
+        detailId: detail.id,
+        detailLabel: detail.label
+      }))
+    );
+    return matches.length > 1 ? [{ transactionIndex, matches }] : [];
+  });
 
   for (const transaction of transactions) {
     const categoryId = transaction.categoryOverride;
@@ -510,8 +524,8 @@ function calculateConfiguredDetails(transactions, reportCategories) {
   for (const category of activeCategories) {
     for (const detail of category.details) {
       if (!detail.keyword) continue;
-      const normalized = normalizeText(detail.keyword);
-      keywordTotals.set(normalized, (keywordTotals.get(normalized) || 0) + 1);
+      const ruleKey = getDetailRuleKey(detail);
+      keywordTotals.set(ruleKey, (keywordTotals.get(ruleKey) || 0) + 1);
     }
   }
 
@@ -526,16 +540,17 @@ function calculateConfiguredDetails(transactions, reportCategories) {
         return { ...detail, value: selected.reduce((sum, tx) => sum + tx.withdrawal, 0) };
       }
       const matches = transactions.filter(
-        tx => !allocatedTransactions.has(tx) && checkKeywordMatch(tx.description, detail.keyword) && tx.withdrawal > 0
+        tx => !allocatedTransactions.has(tx) && matchesDetail(tx.description, detail) && tx.withdrawal > 0
       );
-      const normalized = normalizeText(detail.keyword);
-      const occurrence = keywordIndexes.get(normalized) || 0;
-      keywordIndexes.set(normalized, occurrence + 1);
+      const ruleKey = getDetailRuleKey(detail);
+      const occurrence = keywordIndexes.get(ruleKey) || 0;
+      keywordIndexes.set(ruleKey, occurrence + 1);
       let selected = matches;
-      if ((keywordTotals.get(normalized) || 0) > 1) {
-        const last = occurrence === keywordTotals.get(normalized) - 1;
+      if ((keywordTotals.get(ruleKey) || 0) > 1) {
+        const last = occurrence === keywordTotals.get(ruleKey) - 1;
         selected = last ? matches : matches.slice(0, 1);
       }
+      const normalized = normalizeVendorText(detail.keyword);
       if (normalized === '현대엘레베이터') {
         selected = matches.filter(tx => detail.label.includes('카리프트') ? tx.withdrawal !== 726000 : tx.withdrawal === 726000);
       } else if (normalized === 'KT') {
@@ -555,8 +570,9 @@ function calculateConfiguredDetails(transactions, reportCategories) {
     };
   });
 
-  const unclassifiedTotal = transactions
-    .filter(tx => tx.withdrawal > 0 && !allocatedTransactions.has(tx))
+  const unclassifiedTransactions = transactions
+    .filter(tx => tx.withdrawal > 0 && !allocatedTransactions.has(tx));
+  const unclassifiedTotal = unclassifiedTransactions
     .reduce((sum, tx) => sum + tx.withdrawal, 0);
   const misc = configured.find(category => category.id === 'misc');
   if (misc) {
@@ -567,21 +583,22 @@ function calculateConfiguredDetails(transactions, reportCategories) {
       value: unclassifiedTotal
     });
     misc.total += unclassifiedTotal;
-    transactions
-      .filter(tx => tx.withdrawal > 0 && !allocatedTransactions.has(tx))
-      .forEach(tx => categoryAssignments.set(tx, 'misc'));
+    unclassifiedTransactions.forEach(tx => categoryAssignments.set(tx, 'misc'));
   }
 
-  return { configured, categoryAssignments };
+  return { configured, categoryAssignments, conflicts, unclassifiedTransactions };
 }
 
 export function calculateReportCategoryView(transactions, reportCategories) {
-  const { configured, categoryAssignments } = calculateConfiguredDetails(transactions, reportCategories);
+  const { configured, categoryAssignments, conflicts, unclassifiedTransactions } = calculateConfiguredDetails(transactions, reportCategories);
+  const unclassifiedSet = new Set(unclassifiedTransactions);
   return {
     categories: configured,
     assignments: transactions.map(tx => (
       tx.deposit > 0 && !(tx.withdrawal > 0) ? 'income' : categoryAssignments.get(tx) || 'misc'
-    ))
+    )),
+    unclassifiedIndexes: transactions.flatMap((tx, index) => unclassifiedSet.has(tx) ? [index] : []),
+    conflicts
   };
 }
 

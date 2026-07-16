@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizeReportCategories } from './reportConfig.js';
+import { addLearnedVendorRule, normalizeReportCategories } from './reportConfig.js';
 
 test('preserves arbitrary major categories and every detail item when saving configuration', () => {
   const categories = Array.from({ length: 12 }, (_, categoryIndex) => ({
@@ -30,4 +30,42 @@ test('restores the required unclassified category without dropping custom catego
   ]);
 
   assert.deepEqual(normalized.map(category => category.id), ['custom', 'misc']);
+});
+
+test('preserves aliases and supported match types while normalizing saved settings', () => {
+  const normalized = normalizeReportCategories([
+    {
+      id: 'utilities',
+      label: '공과금',
+      details: [{
+        id: 'electricity',
+        label: '전기',
+        keyword: '한국전력공사',
+        aliases: ['한전', '한전', '  KEPCO  ', ''],
+        matchType: 'exact'
+      }]
+    }
+  ]);
+
+  assert.deepEqual(normalized[0].details[0], {
+    id: 'electricity',
+    label: '전기',
+    keyword: '한국전력공사',
+    aliases: ['한전', 'KEPCO'],
+    matchType: 'exact'
+  });
+});
+
+test('learns a vendor rule once in the selected category', () => {
+  const initial = normalizeReportCategories([
+    { id: 'utilities', label: '공과금', details: [] },
+    { id: 'misc', label: '기타잡비', details: [] }
+  ]);
+
+  const learned = addLearnedVendorRule(initial, 'utilities', '011 ㈜코원 에너지');
+  const repeated = addLearnedVendorRule(learned.categories, 'utilities', '코원에너지');
+
+  assert.equal(learned.added, true);
+  assert.equal(repeated.added, false);
+  assert.equal(repeated.categories[0].details.length, 1);
 });
