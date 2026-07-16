@@ -17,6 +17,7 @@ import {
 import { calculateReportCategoryView, parseExcelTransactions, exportToExcel } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
 import { createReportCategory, cloneDefaultReportCategories, loadReportCategories, saveReportCategories } from './utils/reportConfig';
+import { createReportNaming, normalizeDownloadFileName } from './utils/reportNaming';
 import { sumTransactionAmounts } from './utils/transactionTotals';
 import BaldDodgeGame from './components/BaldDodgeGame';
 import FinancialCharts from './components/FinancialCharts';
@@ -36,6 +37,8 @@ function App() {
   const [reportConfigStatus, setReportConfigStatus] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [reportTitle, setReportTitle] = useState('');
+  const [downloadFileName, setDownloadFileName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [showEasterEgg, setShowEasterEgg] = useState(false);
 
@@ -120,6 +123,7 @@ function App() {
       setFileName(file.name);
       const arrayBuffer = await file.arrayBuffer();
       const rawTxList = await parseExcelTransactions(arrayBuffer);
+      const reportNaming = createReportNaming(rawTxList, file.name);
       
       // Classify initial transactions
       const classified = rawTxList.map(tx => ({
@@ -128,6 +132,8 @@ function App() {
       }));
       
       setTransactions(classified);
+      setReportTitle(reportNaming.title);
+      setDownloadFileName(reportNaming.fileName);
       setSelectedCategory('all');
     } catch (err) {
       console.error(err);
@@ -140,15 +146,23 @@ function App() {
     if (transactions.length === 0) return;
     
     try {
+      const fallbackNaming = createReportNaming(transactions, fileName);
+      const safeReportTitle = reportTitle.trim() || fallbackNaming.title;
+      const safeDownloadFileName = normalizeDownloadFileName(downloadFileName || fallbackNaming.fileName);
+      setReportTitle(safeReportTitle);
+      setDownloadFileName(safeDownloadFileName);
       const templateResponse = await fetch(reportTemplateUrl);
       if (!templateResponse.ok) throw new Error('기준 양식을 불러오지 못했습니다.');
       const templateBuffer = await templateResponse.arrayBuffer();
-      const buffer = await exportToExcel(transactions, rules, templateBuffer, { reportCategories });
+      const buffer = await exportToExcel(transactions, rules, templateBuffer, {
+        reportCategories,
+        reportTitle: safeReportTitle
+      });
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'result.xlsx';
+      a.download = safeDownloadFileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -309,6 +323,8 @@ function App() {
   const handleResetApp = () => {
     setTransactions([]);
     setFileName('');
+    setReportTitle('');
+    setDownloadFileName('');
     setSearchTerm('');
     setErrorMsg('');
   };
@@ -379,6 +395,37 @@ function App() {
           </div>
         )}
       </header>
+
+      {transactions.length > 0 && (
+        <section className="glass-panel export-settings" aria-labelledby="export-settings-title">
+          <div className="export-settings-heading">
+            <div>
+              <h2 id="export-settings-title">내보내기 정보</h2>
+              <p>거래 기간을 반영한 기본값입니다. 다운로드 전에 자유롭게 수정할 수 있습니다.</p>
+            </div>
+            <span>{fileName}</span>
+          </div>
+          <div className="export-settings-fields">
+            <label>
+              보고서 제목
+              <input
+                value={reportTitle}
+                onChange={(event) => setReportTitle(event.target.value)}
+                placeholder="보고서 제목"
+              />
+            </label>
+            <label>
+              다운로드 파일명
+              <input
+                value={downloadFileName}
+                onChange={(event) => setDownloadFileName(event.target.value)}
+                onBlur={() => setDownloadFileName(normalizeDownloadFileName(downloadFileName))}
+                placeholder="사업장_YYYY-MM_월정산.xlsx"
+              />
+            </label>
+          </div>
+        </section>
+      )}
 
       {/* Main Content Area */}
       {transactions.length === 0 ? (

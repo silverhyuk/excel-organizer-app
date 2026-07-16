@@ -747,7 +747,7 @@ async function removeStaleCalculationChain(zip) {
  * @param {Array} transactions
  * @param {object} rules
  * @param {ArrayBuffer|Uint8Array} templateBuffer
- * @param {{ enabledSummaryRows?: string[] }} options
+ * @param {{ enabledSummaryRows?: string[], reportCategories?: Array, reportTitle?: string }} options
  * @returns {Promise<ArrayBuffer>}
  */
 export async function exportToExcel(transactions, rules, templateBuffer, options = {}) {
@@ -764,14 +764,21 @@ export async function exportToExcel(transactions, rules, templateBuffer, options
 
   let sheetXml = await sheetFile.async('string');
   const hasDynamicReport = Array.isArray(options.reportCategories);
-  if (hasDynamicReport) {
+  const hasCustomTitle = Boolean(options.reportTitle?.trim());
+  if (hasDynamicReport || hasCustomTitle) {
     const sharedStringsPath = 'xl/sharedStrings.xml';
     const sharedStringsFile = zip.file(sharedStringsPath);
     if (!sharedStringsFile) throw new Error('result.xlsx 기준 양식의 공유 문자열을 찾을 수 없습니다.');
     const sharedStrings = createSharedStringWriter(await sharedStringsFile.async('string'));
-    sheetXml = buildDynamicConfiguredReport(sheetXml, transactions, options.reportCategories, sharedStrings);
+    if (hasCustomTitle) {
+      sheetXml = replaceCellValue(sheetXml, 'A1', sharedStrings.add(options.reportTitle.trim()));
+    }
+    if (hasDynamicReport) {
+      sheetXml = buildDynamicConfiguredReport(sheetXml, transactions, options.reportCategories, sharedStrings);
+    }
     zip.file(sharedStringsPath, sharedStrings.toXml());
-  } else {
+  }
+  if (!hasDynamicReport) {
     const cValues = await calculateReportValues(transactions);
     for (const item of REPORT_TEMPLATE) {
       if (item.row < 5 || cValues[item.row] === undefined) continue;

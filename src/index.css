@@ -127,6 +127,47 @@ header {
   text-transform: uppercase;
 }
 
+.export-settings {
+  padding: 1.25rem 1.5rem;
+}
+
+.export-settings-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.export-settings-heading h2 {
+  font-size: 1rem;
+}
+
+.export-settings-heading p,
+.export-settings-heading > span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.export-settings-heading > span {
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.export-settings-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.export-settings-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 /* File Upload Area */
 .drop-zone {
   display: flex;
@@ -1243,6 +1284,9 @@ input:focus, select:focus {
   .logo-badge { display: none; }
   .stats-grid { grid-template-columns: 1fr; }
   .drop-zone { padding: 3rem 1.25rem; }
+  .export-settings-heading { flex-direction: column; }
+  .export-settings-heading > span { text-align: left; }
+  .export-settings-fields { grid-template-columns: 1fr; }
   .major-category-tabs { grid-template-columns: repeat(2, 1fr); }
   .report-category-name-row { align-items: stretch; flex-direction: column; gap: 0; }
   .remove-major-category { width: 100%; justify-content: center; }
