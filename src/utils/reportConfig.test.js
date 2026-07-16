@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { addLearnedVendorRule, normalizeReportCategories } from './reportConfig.js';
+import { addLearnedVendorRule, createReportDetail, normalizeReportCategories } from './reportConfig.js';
 
 test('preserves arbitrary major categories and every detail item when saving configuration', () => {
   const categories = Array.from({ length: 12 }, (_, categoryIndex) => ({
@@ -68,4 +68,11 @@ test('learns a vendor rule once in the selected category', () => {
   assert.equal(learned.added, true);
   assert.equal(repeated.added, false);
   assert.equal(repeated.categories[0].details.length, 1);
+});
+
+test('creates report detail ids through the safe config id generator', () => {
+  const detail = createReportDetail({ label: '전기', keyword: '한전' });
+
+  assert.match(detail.id, /^detail-/);
+  assert.equal(detail.matchType, 'contains');
 });

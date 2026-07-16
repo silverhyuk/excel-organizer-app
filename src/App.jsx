@@ -19,6 +19,7 @@ import { getRules, saveRules, classifyTransaction } from './utils/classifier';
 import {
   addLearnedVendorRule,
   createReportCategory,
+  createReportDetail,
   cloneDefaultReportCategories,
   loadReportCategories,
   saveReportCategories
@@ -29,20 +30,13 @@ import BaldDodgeGame from './components/BaldDodgeGame';
 import FinancialCharts from './components/FinancialCharts';
 import reportTemplateUrl from '../result.xlsx?url';
 
-function VendorPatternsInput({ detail, onCommit }) {
-  const serializedPatterns = getDetailPatterns(detail).join('\n');
-  const [value, setValue] = useState(serializedPatterns);
-
-  useEffect(() => {
-    setValue(serializedPatterns);
-  }, [serializedPatterns]);
-
+function VendorPatternsInput({ detail, onChange }) {
+  const value = detail.patternText ?? getDetailPatterns(detail).join('\n');
   return (
     <textarea
       value={value}
       aria-label="거래처 키워드와 별칭"
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={() => onCommit(value)}
+      onChange={(event) => onChange(event.target.value)}
       placeholder={detail.matchType === 'salary' ? '급여 자동 판별' : '한국전력공사\n한전\nKEPCO'}
       disabled={detail.matchType === 'salary'}
     />
@@ -216,7 +210,7 @@ function App() {
         ? {
             ...category,
             details: category.details.map(detail => (
-              detail.id === detailId ? { ...detail, keyword, aliases } : detail
+              detail.id === detailId ? { ...detail, keyword, aliases, patternText: value } : detail
             ))
           }
         : category
@@ -257,13 +251,12 @@ function App() {
       item.id === editingReportCategoryId
         ? {
             ...item,
-            details: [...item.details, {
-              id: crypto.randomUUID(),
+            details: [...item.details, createReportDetail({
               label: newDetailLabel.trim(),
               keyword,
               aliases,
               matchType: newDetailMatchType
-            }]
+            })]
           }
         : item
     )));
@@ -1005,7 +998,7 @@ function App() {
                         </select>
                         <VendorPatternsInput
                           detail={detail}
-                          onCommit={(value) => updateReportDetailPatterns(detail.id, value)}
+                          onChange={(value) => updateReportDetailPatterns(detail.id, value)}
                         />
                         <button className="secondary danger" onClick={() => handleRemoveReportDetail(detail.id)} aria-label={`${detail.label} 삭제`}>
                           <Trash2 size={15} />

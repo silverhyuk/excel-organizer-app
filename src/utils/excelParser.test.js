@@ -241,6 +241,20 @@ test('exports transactions matched by an alias with the configured match type', 
   assert.equal(report.C11.v, 0);
 });
 
+test('keeps KT internet payments out of the KT phone detail', () => {
+  const categories = cloneDefaultReportCategories();
+  const transactions = [
+    { description: 'KT', withdrawal: 55000, deposit: 0 },
+    { description: 'KT통신요금', withdrawal: 150000, deposit: 0 }
+  ];
+
+  const view = calculateReportCategoryView(transactions, categories);
+  const expenses = view.categories.find(category => category.id === 'expenses');
+
+  assert.equal(expenses.details.find(detail => detail.label === 'KT(전화)').value, 55000);
+  assert.equal(expenses.details.find(detail => detail.label === 'KT(인터넷)').value, 150000);
+});
+
 test('manual category overrides take precedence over salary name detection', () => {
   const categories = cloneDefaultReportCategories();
   const transactions = [

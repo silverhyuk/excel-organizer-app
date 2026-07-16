@@ -76,6 +76,16 @@ export function createReportCategory(label = '새 카테고리') {
   };
 }
 
+export function createReportDetail({ label, keyword, aliases = [], matchType = 'contains' }) {
+  return {
+    id: createId('detail'),
+    label,
+    keyword,
+    aliases,
+    matchType: normalizeMatchType(matchType)
+  };
+}
+
 export function normalizeReportCategories(config) {
   if (!Array.isArray(config)) return cloneDefaultReportCategories();
   const seenIds = new Set();

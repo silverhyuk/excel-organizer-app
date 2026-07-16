@@ -553,7 +553,7 @@ function calculateConfiguredDetails(transactions, reportCategories) {
       const normalized = normalizeVendorText(detail.keyword);
       if (normalized === '현대엘레베이터') {
         selected = matches.filter(tx => detail.label.includes('카리프트') ? tx.withdrawal !== 726000 : tx.withdrawal === 726000);
-      } else if (normalized === 'KT') {
+      } else if (normalized === 'kt') {
         selected = matches.filter(tx => tx.withdrawal < 100000);
       }
       selected.forEach(tx => {

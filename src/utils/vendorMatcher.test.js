@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   createLearnedVendorDetail,
+  getDetailPatterns,
+  getDetailRuleKey,
   matchesDetail,
   normalizeVendorText,
   validateMatchPattern
@@ -43,4 +45,17 @@ test('creates an exact learned rule from a transaction description', () => {
   assert.equal(detail.matchType, 'exact');
   assert.deepEqual(detail.aliases, []);
   assert.equal(matchesDetail('코원에너지', detail), true);
+});
+
+test('memoizes parsed patterns for an unchanged detail object', () => {
+  const detail = { keyword: '한국전력공사', aliases: ['한전'], matchType: 'contains' };
+
+  assert.equal(getDetailPatterns(detail), getDetailPatterns(detail));
+});
+
+test('builds collision-safe keys for regex patterns containing alternation', () => {
+  const first = { keyword: 'a|b', aliases: ['c'], matchType: 'regex' };
+  const second = { keyword: 'a', aliases: ['b|c'], matchType: 'regex' };
+
+  assert.notEqual(getDetailRuleKey(first), getDetailRuleKey(second));
 });

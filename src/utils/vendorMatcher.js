@@ -5,6 +5,7 @@ export const MATCH_TYPE_OPTIONS = [
 ];
 
 const MATCH_TYPES = new Set(MATCH_TYPE_OPTIONS.map(option => option.value));
+const DETAIL_PATTERNS_CACHE = new WeakMap();
 
 const LEGACY_ALIASES = {
   '한전카인드': ['한전'],
@@ -41,10 +42,15 @@ export function normalizeVendorText(value) {
 }
 
 export function getDetailPatterns(detail) {
+  if (!detail || typeof detail !== 'object') return [];
+  const cached = DETAIL_PATTERNS_CACHE.get(detail);
+  if (cached) return cached;
   const patterns = [detail?.keyword, ...(Array.isArray(detail?.aliases) ? detail.aliases : [])]
     .map(pattern => String(pattern || '').trim())
     .filter(Boolean);
-  return [...new Set(patterns)];
+  const uniquePatterns = [...new Set(patterns)];
+  DETAIL_PATTERNS_CACHE.set(detail, uniquePatterns);
+  return uniquePatterns;
 }
 
 export function validateMatchPattern(pattern, matchType) {
@@ -84,7 +90,7 @@ export function getDetailRuleKey(detail) {
   const patterns = getDetailPatterns(detail).map(pattern => (
     matchType === 'regex' ? pattern : normalizeVendorText(pattern)
   ));
-  return `${matchType}:${patterns.join('|')}`;
+  return JSON.stringify([matchType, patterns]);
 }
 
 function createId() {
