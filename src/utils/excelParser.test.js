@@ -27,6 +27,7 @@ test('keeps the exact withdrawal column when an input/output bank column follows
   assert.equal(transactions.length, 2);
   assert.equal(transactions.reduce((sum, tx) => sum + tx.withdrawal, 0), 105250);
   assert.equal(transactions.reduce((sum, tx) => sum + tx.deposit, 0), 250000);
+  assert.equal(transactions.every(tx => tx.hasBalance), true);
 });
 
 test('rejects unknown headers instead of guessing an input and output column order', async () => {

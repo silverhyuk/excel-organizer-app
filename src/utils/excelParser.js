@@ -77,6 +77,7 @@ export function parseExcelTransactions(arrayBuffer) {
         const withdrawalVal = parseNumber(row[mappingsFound.withdrawal]);
         const depositVal = parseNumber(row[mappingsFound.deposit]);
         const balanceVal = parseNumber(row[mappingsFound.balance]);
+        const hasBalance = mappingsFound.balance !== undefined && row[mappingsFound.balance] !== '';
         
         // Skip row if it has no financial value change
         if (withdrawalVal === 0 && depositVal === 0) continue;
@@ -88,6 +89,7 @@ export function parseExcelTransactions(arrayBuffer) {
           withdrawal: withdrawalVal,
           deposit: depositVal,
           balance: balanceVal,
+          hasBalance,
           category: 'etc' // default, classified dynamically
         });
       }
@@ -555,8 +557,9 @@ function calculateConfiguredDetails(transactions, reportCategories) {
     };
   });
 
-  const unclassifiedTotal = transactions
-    .filter(tx => tx.withdrawal > 0 && !allocatedTransactions.has(tx))
+  const unclassifiedTransactions = transactions
+    .filter(tx => tx.withdrawal > 0 && !allocatedTransactions.has(tx));
+  const unclassifiedTotal = unclassifiedTransactions
     .reduce((sum, tx) => sum + tx.withdrawal, 0);
   const misc = configured.find(category => category.id === 'misc');
   if (misc) {
@@ -567,21 +570,21 @@ function calculateConfiguredDetails(transactions, reportCategories) {
       value: unclassifiedTotal
     });
     misc.total += unclassifiedTotal;
-    transactions
-      .filter(tx => tx.withdrawal > 0 && !allocatedTransactions.has(tx))
-      .forEach(tx => categoryAssignments.set(tx, 'misc'));
+    unclassifiedTransactions.forEach(tx => categoryAssignments.set(tx, 'misc'));
   }
 
-  return { configured, categoryAssignments };
+  return { configured, categoryAssignments, unclassifiedTransactions };
 }
 
 export function calculateReportCategoryView(transactions, reportCategories) {
-  const { configured, categoryAssignments } = calculateConfiguredDetails(transactions, reportCategories);
+  const { configured, categoryAssignments, unclassifiedTransactions } = calculateConfiguredDetails(transactions, reportCategories);
+  const unclassified = new Set(unclassifiedTransactions);
   return {
     categories: configured,
     assignments: transactions.map(tx => (
       tx.deposit > 0 && !(tx.withdrawal > 0) ? 'income' : categoryAssignments.get(tx) || 'misc'
-    ))
+    )),
+    unclassifiedIndexes: transactions.flatMap((tx, index) => unclassified.has(tx) ? [index] : [])
   };
 }
 
