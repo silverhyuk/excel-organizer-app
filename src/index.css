@@ -553,12 +553,40 @@ input:focus, select:focus {
   justify-content: center;
 }
 
+.major-category-tabs .disabled-category {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
 .report-category-name {
   margin-bottom: 1rem;
 }
 
 .report-category-name input {
   width: 100%;
+}
+
+.report-category-enabled {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin: -0.25rem 0 1rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.report-category-enabled input {
+  width: auto;
+}
+
+.report-category-enabled span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.report-category-enabled small {
+  color: var(--text-muted);
 }
 
 .report-detail-header {

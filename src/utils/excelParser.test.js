@@ -197,3 +197,23 @@ test('manual category overrides take precedence over salary name detection', () 
   assert.equal(view.categories.find(category => category.id === 'salary').total, 0);
   assert.equal(view.categories.find(category => category.id === 'misc').total, 1870000);
 });
+
+test('disabled major categories are excluded and hidden in the exported report', async () => {
+  const categories = cloneDefaultReportCategories();
+  categories.find(category => category.id === 'utilities').enabled = false;
+  const transactions = [{ description: '011코원에너지', withdrawal: 105250, deposit: 0 }];
+
+  const view = calculateReportCategoryView(transactions, categories);
+  assert.equal(view.categories.some(category => category.id === 'utilities'), false);
+  assert.deepEqual(view.assignments, ['misc']);
+
+  const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
+  const output = await exportToExcel(transactions, {}, template, { reportCategories: categories });
+  const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
+  const report = workbook.Sheets.Sheet1;
+
+  assert.equal(report.C19.v, 0);
+  assert.equal(report['!rows'][18].hidden, true);
+  assert.equal(report['!rows'][10].hidden, true);
+  assert.equal(report.C95.v, 105250);
+});

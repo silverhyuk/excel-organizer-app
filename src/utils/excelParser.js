@@ -511,9 +511,10 @@ function isSalaryTransaction(transaction) {
 }
 
 function calculateConfiguredDetails(transactions, reportCategories) {
+  const activeCategories = reportCategories.filter(category => category.enabled !== false);
   const allocatedTransactions = new Set();
   const categoryAssignments = new Map();
-  const configuredCategoryIds = new Set(reportCategories.map(category => category.id));
+  const configuredCategoryIds = new Set(activeCategories.map(category => category.id));
   const manualTotals = new Map();
   const keywordTotals = new Map();
   const keywordIndexes = new Map();
@@ -526,7 +527,7 @@ function calculateConfiguredDetails(transactions, reportCategories) {
     manualTotals.set(categoryId, (manualTotals.get(categoryId) || 0) + transaction.withdrawal);
   }
 
-  for (const category of reportCategories) {
+  for (const category of activeCategories) {
     for (const detail of category.details) {
       if (!detail.keyword) continue;
       const normalized = normalizeText(detail.keyword);
@@ -534,7 +535,7 @@ function calculateConfiguredDetails(transactions, reportCategories) {
     }
   }
 
-  const configured = reportCategories.map(category => {
+  const configured = activeCategories.map(category => {
     const details = category.details.map(detail => {
       if (detail.matchType === 'salary') {
         const selected = transactions.filter(tx => !allocatedTransactions.has(tx) && isSalaryTransaction(tx));
@@ -609,6 +610,17 @@ export function calculateReportCategoryView(transactions, reportCategories) {
 function applyConfiguredReport(sheetXml, transactions, reportCategories, sharedStrings) {
   const { configured } = calculateConfiguredDetails(transactions, reportCategories);
   sheetXml = replaceCellValue(sheetXml, 'C5', transactions.reduce((sum, tx) => sum + tx.deposit, 0));
+
+  for (const category of reportCategories.filter(item => item.enabled === false)) {
+    for (const row of category.detailRows) {
+      sheetXml = replaceCellText(sheetXml, `A${row}`, '', sharedStrings);
+      sheetXml = replaceCellText(sheetXml, `G${row}`, '', sharedStrings);
+      sheetXml = replaceCellValue(sheetXml, `C${row}`, 0);
+      sheetXml = setRowsHidden(sheetXml, [row, row + 1], true);
+    }
+    sheetXml = replaceCellValue(sheetXml, `C${category.summaryRow}`, 0);
+    sheetXml = setRowsHidden(sheetXml, [category.summaryRow, category.summaryRow + 1], true);
+  }
 
   for (const category of configured) {
     category.detailRows.forEach((row, index) => {

@@ -170,6 +170,14 @@ function App() {
     )));
   };
 
+  const updateReportCategoryEnabled = (enabled) => {
+    setReportConfigStatus('');
+    setReportCategories(categories => categories.map(category => (
+      category.id === editingReportCategoryId ? { ...category, enabled } : category
+    )));
+    if (!enabled && selectedCategory === editingReportCategoryId) setSelectedCategory('all');
+  };
+
   const handleRemoveReportDetail = (detailId) => {
     setReportConfigStatus('');
     setReportCategories(categories => categories.map(category => (
@@ -578,7 +586,7 @@ function App() {
                                 aria-label={`${tx.description} 카테고리`}
                                 style={{ minWidth: '105px', padding: '0.3rem 0.5rem', fontSize: '0.8rem', fontWeight: 500 }}
                               >
-                                {reportCategories.map(category => (
+                                {reportCategories.filter(category => category.enabled !== false).map(category => (
                                   <option key={category.id} value={category.id}>
                                     {category.label}
                                   </option>
@@ -708,7 +716,7 @@ function App() {
               {reportCategories.map(category => (
                 <button
                   key={category.id}
-                  className={editingReportCategoryId === category.id ? '' : 'secondary'}
+                  className={`${editingReportCategoryId === category.id ? '' : 'secondary'} ${category.enabled === false ? 'disabled-category' : ''}`}
                   onClick={() => {
                     setEditingReportCategoryId(category.id);
                     setNewDetailLabel('');
@@ -735,6 +743,18 @@ function App() {
                       placeholder="큰 카테고리 이름"
                     />
                   </div>
+                  <label className="report-category-enabled">
+                    <input
+                      type="checkbox"
+                      checked={category.enabled !== false}
+                      disabled={category.id === 'misc'}
+                      onChange={(event) => updateReportCategoryEnabled(event.target.checked)}
+                    />
+                    <span>
+                      이 큰 카테고리 사용
+                      {category.id === 'misc' && <small>미분류 지출 합계를 위해 항상 사용됩니다.</small>}
+                    </span>
+                  </label>
                   <div className="report-detail-header">
                     <strong>작은 카테고리 항목</strong>
                     <span>{category.details.length}/{detailLimit}개</span>
