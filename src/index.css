@@ -451,6 +451,69 @@ button.danger:hover {
   padding: 2rem;
 }
 
+.export-modal {
+  max-width: 620px;
+}
+
+.export-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--border-glass);
+}
+
+.export-modal-header h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.export-modal-header p {
+  margin-top: 0.35rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.export-modal-close {
+  flex: 0 0 auto;
+  padding: 0.25rem;
+  border-radius: 50%;
+}
+
+.export-modal-source {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.export-modal-source strong {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-align: right;
+}
+
+.export-modal .form-group input {
+  width: 100%;
+}
+
+.export-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border-glass);
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -1243,6 +1306,8 @@ input:focus, select:focus {
   .logo-badge { display: none; }
   .stats-grid { grid-template-columns: 1fr; }
   .drop-zone { padding: 3rem 1.25rem; }
+  .export-modal-source { flex-direction: column; }
+  .export-modal-source strong { text-align: left; }
   .major-category-tabs { grid-template-columns: repeat(2, 1fr); }
   .report-category-name-row { align-items: stretch; flex-direction: column; gap: 0; }
   .remove-major-category { width: 100%; justify-content: center; }

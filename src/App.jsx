@@ -17,6 +17,7 @@ import {
 import { calculateReportCategoryView, parseExcelTransactions, exportToExcel } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
 import { createReportCategory, cloneDefaultReportCategories, loadReportCategories, saveReportCategories } from './utils/reportConfig';
+import { createReportNaming, normalizeDownloadFileName } from './utils/reportNaming';
 import { sumTransactionAmounts } from './utils/transactionTotals';
 import BaldDodgeGame from './components/BaldDodgeGame';
 import FinancialCharts from './components/FinancialCharts';
@@ -29,6 +30,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [reportCategories, setReportCategories] = useState(cloneDefaultReportCategories);
   const [editingReportCategoryId, setEditingReportCategoryId] = useState('utilities');
   const [newDetailLabel, setNewDetailLabel] = useState('');
@@ -36,6 +38,8 @@ function App() {
   const [reportConfigStatus, setReportConfigStatus] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [reportTitle, setReportTitle] = useState('');
+  const [downloadFileName, setDownloadFileName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [showEasterEgg, setShowEasterEgg] = useState(false);
 
@@ -120,6 +124,7 @@ function App() {
       setFileName(file.name);
       const arrayBuffer = await file.arrayBuffer();
       const rawTxList = await parseExcelTransactions(arrayBuffer);
+      const reportNaming = createReportNaming(rawTxList, file.name);
       
       // Classify initial transactions
       const classified = rawTxList.map(tx => ({
@@ -128,6 +133,8 @@ function App() {
       }));
       
       setTransactions(classified);
+      setReportTitle(reportNaming.title);
+      setDownloadFileName(reportNaming.fileName);
       setSelectedCategory('all');
     } catch (err) {
       console.error(err);
@@ -136,23 +143,33 @@ function App() {
   };
 
   // Export current transactions to excel
-  const handleExport = async () => {
+  const handleExport = async (event) => {
+    event?.preventDefault();
     if (transactions.length === 0) return;
     
     try {
+      const fallbackNaming = createReportNaming(transactions, fileName);
+      const safeReportTitle = reportTitle.trim() || fallbackNaming.title;
+      const safeDownloadFileName = normalizeDownloadFileName(downloadFileName || fallbackNaming.fileName);
+      setReportTitle(safeReportTitle);
+      setDownloadFileName(safeDownloadFileName);
       const templateResponse = await fetch(reportTemplateUrl);
       if (!templateResponse.ok) throw new Error('기준 양식을 불러오지 못했습니다.');
       const templateBuffer = await templateResponse.arrayBuffer();
-      const buffer = await exportToExcel(transactions, rules, templateBuffer, { reportCategories });
+      const buffer = await exportToExcel(transactions, rules, templateBuffer, {
+        reportCategories,
+        reportTitle: safeReportTitle
+      });
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'result.xlsx';
+      a.download = safeDownloadFileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      setIsExportModalOpen(false);
     } catch (err) {
       console.error(err);
       alert(err.message || '엑셀 내보내기 중 오류가 발생했습니다.');
@@ -309,6 +326,9 @@ function App() {
   const handleResetApp = () => {
     setTransactions([]);
     setFileName('');
+    setReportTitle('');
+    setDownloadFileName('');
+    setIsExportModalOpen(false);
     setSearchTerm('');
     setErrorMsg('');
   };
@@ -373,7 +393,7 @@ function App() {
             <button className="secondary" onClick={handleResetApp}>
               <RefreshCw size={16} /> 다른 파일 업로드
             </button>
-            <button onClick={handleExport}>
+            <button onClick={() => setIsExportModalOpen(true)}>
               <Download size={16} /> 정리된 엑셀 다운로드
             </button>
           </div>
@@ -653,6 +673,76 @@ function App() {
 
           </div>
         </>
+      )}
+
+      {/* Export Settings Modal */}
+      {isExportModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsExportModalOpen(false)}>
+          <form
+            className="modal-content glass-panel export-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="export-modal-title"
+            onSubmit={handleExport}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.stopPropagation();
+                setIsExportModalOpen(false);
+              }
+            }}
+          >
+            <div className="export-modal-header">
+              <div>
+                <h3 id="export-modal-title">내보내기 정보</h3>
+                <p>보고서 제목과 파일명을 확인한 뒤 다운로드하세요.</p>
+              </div>
+              <button
+                type="button"
+                className="secondary export-modal-close"
+                onClick={() => setIsExportModalOpen(false)}
+                aria-label="내보내기 팝업 닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="export-modal-source">
+              <span>원본 파일</span>
+              <strong>{fileName}</strong>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="report-title">보고서 제목</label>
+              <input
+                id="report-title"
+                value={reportTitle}
+                onChange={(event) => setReportTitle(event.target.value)}
+                placeholder="보고서 제목"
+                autoFocus
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="download-file-name">다운로드 파일명</label>
+              <input
+                id="download-file-name"
+                value={downloadFileName}
+                onChange={(event) => setDownloadFileName(event.target.value)}
+                onBlur={() => setDownloadFileName(normalizeDownloadFileName(downloadFileName))}
+                placeholder="사업장_YYYY-MM_월정산.xlsx"
+              />
+            </div>
+
+            <div className="export-modal-actions">
+              <button type="button" className="secondary" onClick={() => setIsExportModalOpen(false)}>
+                취소
+              </button>
+              <button type="submit">
+                <Download size={16} /> 다운로드
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {/* Rules Manager Modal */}
