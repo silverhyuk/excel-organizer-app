@@ -18,8 +18,8 @@ import { calculateReportCategoryView, parseExcelTransactions, exportToExcel } fr
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
 import { createReportCategory, cloneDefaultReportCategories, loadReportCategories, saveReportCategories } from './utils/reportConfig';
 import { sumTransactionAmounts } from './utils/transactionTotals';
+import BaldDodgeGame from './components/BaldDodgeGame';
 import FinancialCharts from './components/FinancialCharts';
-import baldDancerImg from './assets/bald_dancer.jpg';
 import reportTemplateUrl from '../result.xlsx?url';
 
 function App() {
@@ -853,16 +853,8 @@ function App() {
       {/* Easter Egg Overlay */}
       {showEasterEgg && (
         <div className="easter-egg-overlay" onClick={() => setShowEasterEgg(false)}>
-          <div className="easter-egg-content" onClick={(e) => e.stopPropagation()}>
-            <h1 className="disco-title">빡빡이 댄스 타임! 🕺</h1>
-            <div className="dancer-container">
-              <img 
-                src={baldDancerImg} 
-                alt="Dancing Bald Man" 
-                className="dancing-bald-man"
-              />
-            </div>
-            <p className="disco-subtitle">ESC를 다시 누르거나 화면을 클릭하여 돌아가기</p>
+          <div onClick={(e) => e.stopPropagation()}>
+            <BaldDodgeGame onClose={() => setShowEasterEgg(false)} />
           </div>
         </div>
       )}
