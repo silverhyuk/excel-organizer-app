@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { calculateReportCategoryView, parseExcelTransactions, exportToExcel } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
-import { cloneDefaultReportCategories, loadReportCategories, saveReportCategories } from './utils/reportConfig';
+import { createReportCategory, cloneDefaultReportCategories, loadReportCategories, saveReportCategories } from './utils/reportConfig';
 import { sumTransactionAmounts } from './utils/transactionTotals';
 import FinancialCharts from './components/FinancialCharts';
 import baldDancerImg from './assets/bald_dancer.jpg';
@@ -59,7 +59,12 @@ function App() {
   useEffect(() => {
     let active = true;
     loadReportCategories().then(categories => {
-      if (active) setReportCategories(categories);
+      if (active) {
+        setReportCategories(categories);
+        setEditingReportCategoryId(current => (
+          categories.some(category => category.id === current) ? current : categories[0]?.id || 'misc'
+        ));
+      }
     });
     return () => { active = false; };
   }, []);
@@ -171,6 +176,7 @@ function App() {
   };
 
   const updateReportCategoryEnabled = (enabled) => {
+    if (editingReportCategoryId === 'misc') return;
     setReportConfigStatus('');
     setReportCategories(categories => categories.map(category => (
       category.id === editingReportCategoryId ? { ...category, enabled } : category
@@ -189,13 +195,34 @@ function App() {
 
   const handleAddReportDetail = () => {
     const category = reportCategories.find(item => item.id === editingReportCategoryId);
-    const detailLimit = category.id === 'misc' ? category.detailRows.length - 1 : category.detailRows.length;
-    if (!newDetailLabel.trim() || !newDetailKeyword.trim() || category.details.length >= detailLimit) return;
+    if (!category || !newDetailLabel.trim() || !newDetailKeyword.trim()) return;
     setReportCategories(categories => categories.map(item => (
       item.id === editingReportCategoryId
         ? { ...item, details: [...item.details, { id: crypto.randomUUID(), label: newDetailLabel.trim(), keyword: newDetailKeyword.trim() }] }
         : item
     )));
+    setNewDetailLabel('');
+    setNewDetailKeyword('');
+    setReportConfigStatus('');
+  };
+
+  const handleAddReportCategory = () => {
+    const category = createReportCategory(`새 카테고리 ${reportCategories.length + 1}`);
+    setReportCategories(categories => [...categories, category]);
+    setEditingReportCategoryId(category.id);
+    setNewDetailLabel('');
+    setNewDetailKeyword('');
+    setReportConfigStatus('');
+  };
+
+  const handleRemoveReportCategory = () => {
+    if (editingReportCategoryId === 'misc') return;
+    const category = reportCategories.find(item => item.id === editingReportCategoryId);
+    if (!category || !window.confirm(`'${category.label}' 큰 카테고리를 삭제하시겠습니까?`)) return;
+    const remaining = reportCategories.filter(item => item.id !== editingReportCategoryId);
+    setReportCategories(remaining);
+    setEditingReportCategoryId(remaining[0]?.id || 'misc');
+    if (selectedCategory === editingReportCategoryId) setSelectedCategory('all');
     setNewDetailLabel('');
     setNewDetailKeyword('');
     setReportConfigStatus('');
@@ -212,6 +239,15 @@ function App() {
       setReportConfigStatus('저장 실패');
       return false;
     }
+  };
+
+  const handleResetReportCategories = () => {
+    const defaults = cloneDefaultReportCategories();
+    setReportCategories(defaults);
+    setEditingReportCategoryId('utilities');
+    setNewDetailLabel('');
+    setNewDetailKeyword('');
+    setReportConfigStatus('기본값으로 복원됨 · 저장 필요');
   };
 
   // Add keyword to current editing category
@@ -440,7 +476,7 @@ function App() {
                     onClick={() => setIsSummaryModalOpen(true)}
                     id="btn-summary-manager"
                   >
-                    <Plus size={12} /> 큰 카테고리 설정
+                    <Plus size={12} /> 카테고리 관리
                   </button>
                 </div>
               </div>
@@ -704,7 +740,7 @@ function App() {
               <div>
                 <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>큰 카테고리 설정</h3>
                 <p style={{ marginTop: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                  큰 카테고리 이름과 그 안의 작은 카테고리 항목을 수정하세요.
+                  큰 카테고리와 그 안의 작은 카테고리를 필요한 만큼 추가하거나 삭제하세요.
                 </p>
               </div>
               <button className="secondary" style={{ padding: '0.25rem', borderRadius: '50%' }} onClick={() => setIsSummaryModalOpen(false)}>
@@ -726,22 +762,31 @@ function App() {
                   {category.label}
                 </button>
               ))}
+              <button className="secondary add-major-category" onClick={handleAddReportCategory}>
+                <Plus size={15} /> 큰 카테고리 추가
+              </button>
             </div>
 
             {(() => {
               const category = reportCategories.find(item => item.id === editingReportCategoryId);
-              const detailLimit = category.id === 'misc' ? category.detailRows.length - 1 : category.detailRows.length;
-              const isFull = category.details.length >= detailLimit;
+              if (!category) return null;
               return (
                 <>
-                  <div className="form-group report-category-name">
-                    <label htmlFor="report-category-label">큰 카테고리 이름</label>
-                    <input
-                      id="report-category-label"
-                      value={category.label}
-                      onChange={(event) => updateReportCategoryLabel(event.target.value)}
-                      placeholder="큰 카테고리 이름"
-                    />
+                  <div className="report-category-name-row">
+                    <div className="form-group report-category-name">
+                      <label htmlFor="report-category-label">큰 카테고리 이름</label>
+                      <input
+                        id="report-category-label"
+                        value={category.label}
+                        onChange={(event) => updateReportCategoryLabel(event.target.value)}
+                        placeholder="큰 카테고리 이름"
+                      />
+                    </div>
+                    {category.id !== 'misc' && (
+                      <button className="secondary danger remove-major-category" onClick={handleRemoveReportCategory}>
+                        <Trash2 size={15} /> 큰 카테고리 삭제
+                      </button>
+                    )}
                   </div>
                   <label className="report-category-enabled">
                     <input
@@ -757,7 +802,7 @@ function App() {
                   </label>
                   <div className="report-detail-header">
                     <strong>작은 카테고리 항목</strong>
-                    <span>{category.details.length}/{detailLimit}개</span>
+                    <span>{category.details.length}개 · 제한 없음</span>
                   </div>
                   <div className="report-detail-list">
                     {category.details.map(detail => (
@@ -782,13 +827,12 @@ function App() {
                     ))}
                   </div>
                   <div className="report-detail-add">
-                    <input value={newDetailLabel} onChange={(event) => setNewDetailLabel(event.target.value)} placeholder="새 항목명" disabled={isFull} />
-                    <input value={newDetailKeyword} onChange={(event) => setNewDetailKeyword(event.target.value)} placeholder="거래처 키워드" disabled={isFull} />
-                    <button onClick={handleAddReportDetail} disabled={isFull || !newDetailLabel.trim() || !newDetailKeyword.trim()}>
+                    <input value={newDetailLabel} onChange={(event) => setNewDetailLabel(event.target.value)} placeholder="새 항목명" />
+                    <input value={newDetailKeyword} onChange={(event) => setNewDetailKeyword(event.target.value)} placeholder="거래처 키워드" />
+                    <button onClick={handleAddReportDetail} disabled={!newDetailLabel.trim() || !newDetailKeyword.trim()}>
                       <Plus size={15} /> 추가
                     </button>
                   </div>
-                  {isFull && <p className="report-detail-limit">현재 Excel 양식에서 {category.label}은 최대 {detailLimit}개까지 사용할 수 있습니다.</p>}
                 </>
               );
             })()}
@@ -798,7 +842,7 @@ function App() {
                 {reportConfigStatus || '저장 버튼을 누르면 다음 실행에도 설정이 유지됩니다.'}
               </span>
               <div style={{ display: 'flex', gap: '0.6rem' }}>
-                <button className="secondary" onClick={() => setReportCategories(cloneDefaultReportCategories())}>기본값 복원</button>
+                <button className="secondary" onClick={handleResetReportCategories}>기본값 복원</button>
                 <button onClick={async () => { if (await handleSaveReportCategories()) setIsSummaryModalOpen(false); }}>저장</button>
               </div>
             </div>

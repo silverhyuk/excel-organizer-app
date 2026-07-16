@@ -4,11 +4,11 @@ const BROWSER_STORAGE_KEY = 'excel_organizer_report_categories';
 
 export const DEFAULT_REPORT_CATEGORIES = [
   {
-    id: 'salary', label: '급여', summaryRow: 9, detailRows: [7],
+    id: 'salary', label: '급여',
     details: [{ id: 'salary-default', label: '총 급여', keyword: '', matchType: 'salary' }]
   },
   {
-    id: 'utilities', label: '공과금', summaryRow: 19, detailRows: [11, 13, 15, 17],
+    id: 'utilities', label: '공과금',
     details: [
       { id: 'gas', label: '가스', keyword: '코원에너지' },
       { id: 'water', label: '수도', keyword: '맑은물관리사업소' },
@@ -17,11 +17,11 @@ export const DEFAULT_REPORT_CATEGORIES = [
     ]
   },
   {
-    id: 'card', label: '지출카드', summaryRow: 23, detailRows: [21],
+    id: 'card', label: '지출카드',
     details: [{ id: 'suhyup-card', label: '지출카드(수협)', keyword: '수협카드대금' }]
   },
   {
-    id: 'advertising', label: '광고비', summaryRow: 31, detailRows: [25, 27, 29],
+    id: 'advertising', label: '광고비',
     details: [
       { id: 'yanolja', label: '야놀자', keyword: '㈜놀유니버스' },
       { id: 'yeogi', label: '여기어때', keyword: '㈜여기어때' },
@@ -29,8 +29,7 @@ export const DEFAULT_REPORT_CATEGORIES = [
     ]
   },
   {
-    id: 'expenses', label: '지출', summaryRow: 81,
-    detailRows: [33, 35, 37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63, 65, 67, 69, 71, 73, 75, 77, 79],
+    id: 'expenses', label: '지출',
     details: [
       ['세탁비', '김옥희'], ['객실 세탁비', '㈜에이치투오솔'], ['비품비', '㈜아나한별유통'],
       ['식자재', '고려유통'], ['음식물쓰레기', '유림기업'], ['소독비', '지앤씨바이오'],
@@ -44,7 +43,7 @@ export const DEFAULT_REPORT_CATEGORIES = [
     ].map(([label, keyword], index) => ({ id: `expense-${index + 1}`, label, keyword }))
   },
   {
-    id: 'misc', label: '기타잡비', summaryRow: 95, detailRows: [83, 85, 87, 89, 91, 93],
+    id: 'misc', label: '기타잡비', enabled: true,
     details: [
       ['생수텍', '홍현기'], ['객실카드홀더', '홍현기'], ['카드키 단말기', '황영주'],
       ['식자재', '이순이'], ['디너 소주/맥주', '㈜장안주류판매']
@@ -56,38 +55,63 @@ export function cloneDefaultReportCategories() {
   return structuredClone(DEFAULT_REPORT_CATEGORIES);
 }
 
-function normalizeConfig(config) {
+function createId(prefix) {
+  const randomId = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${randomId}`;
+}
+
+export function createReportCategory(label = '새 카테고리') {
+  return {
+    id: createId('category'),
+    label,
+    enabled: true,
+    details: []
+  };
+}
+
+export function normalizeReportCategories(config) {
   if (!Array.isArray(config)) return cloneDefaultReportCategories();
-  return DEFAULT_REPORT_CATEGORIES.map(defaultCategory => {
-    const saved = config.find(category => category.id === defaultCategory.id);
-    if (!saved || !Array.isArray(saved.details)) return structuredClone(defaultCategory);
+  const seenIds = new Set();
+  const normalized = config.map((category, categoryIndex) => {
+    if (!category || typeof category !== 'object') return null;
+    let id = String(category.id || createId('category'));
+    if (seenIds.has(id)) id = createId('category');
+    seenIds.add(id);
+    const fallbackLabel = `카테고리 ${categoryIndex + 1}`;
+    const details = Array.isArray(category.details) ? category.details : [];
     return {
-      ...structuredClone(defaultCategory),
-      label: String(saved.label || defaultCategory.label).trim() || defaultCategory.label,
-      enabled: defaultCategory.id === 'misc' || saved.enabled !== false,
-      details: saved.details.slice(0, defaultCategory.id === 'misc' ? defaultCategory.detailRows.length - 1 : defaultCategory.detailRows.length).map(detail => ({
-        id: String(detail.id || crypto.randomUUID()),
-        label: String(detail.label || '').trim(),
-        keyword: String(detail.keyword || '').trim(),
-        ...(detail.matchType === 'salary' ? { matchType: 'salary' } : {})
+      id,
+      label: String(category.label || fallbackLabel).trim() || fallbackLabel,
+      enabled: id === 'misc' || category.enabled !== false,
+      details: details.map(detail => ({
+        id: String(detail?.id || createId('detail')),
+        label: String(detail?.label || '').trim(),
+        keyword: String(detail?.keyword || '').trim(),
+        ...(detail?.matchType === 'salary' ? { matchType: 'salary' } : {})
       })).filter(detail => detail.label)
     };
-  });
+  }).filter(Boolean);
+
+  if (!normalized.some(category => category.id === 'misc')) {
+    normalized.push(structuredClone(DEFAULT_REPORT_CATEGORIES.find(category => category.id === 'misc')));
+  }
+  return normalized;
 }
 
 export async function loadReportCategories() {
   try {
     const saved = await invoke('load_report_config');
-    if (saved) return normalizeConfig(JSON.parse(saved));
+    if (saved) return normalizeReportCategories(JSON.parse(saved));
   } catch {
     const saved = localStorage.getItem(BROWSER_STORAGE_KEY);
-    if (saved) return normalizeConfig(JSON.parse(saved));
+    if (saved) return normalizeReportCategories(JSON.parse(saved));
   }
   return cloneDefaultReportCategories();
 }
 
 export async function saveReportCategories(categories) {
-  const normalized = normalizeConfig(categories);
+  const normalized = normalizeReportCategories(categories);
   const serialized = JSON.stringify(normalized, null, 2);
   try {
     await invoke('save_report_config', { config: serialized });

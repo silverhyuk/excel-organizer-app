@@ -469,33 +469,13 @@ function createSharedStringWriter(sharedStringsXml) {
       return index;
     },
     toXml() {
+      const totalStringCount = initialUniqueCount + additions.length;
       return sharedStringsXml
-        .replace(/uniqueCount="\d+"/, `uniqueCount="${initialUniqueCount + additions.length}"`)
+        .replace(/\bcount="\d+"/, `count="${totalStringCount}"`)
+        .replace(/uniqueCount="\d+"/, `uniqueCount="${totalStringCount}"`)
         .replace('</sst>', `${additions.join('')}</sst>`);
     }
   };
-}
-
-function replaceCellText(sheetXml, cellRef, value, sharedStrings) {
-  const cellPattern = new RegExp(`(<c\\s+[^>]*r="${cellRef}"[^>/]*)(?:\\s*/>|>[\\s\\S]*?</c>)`);
-  if (!cellPattern.test(sheetXml)) {
-    throw new Error(`기준 양식에서 ${cellRef} 셀을 찾을 수 없습니다.`);
-  }
-  return sheetXml.replace(cellPattern, (_, opening) => {
-    const sharedStringOpening = opening.replace(/\s+t="[^"]*"/g, '') + ' t="s"';
-    return `${sharedStringOpening}><v>${sharedStrings.add(value)}</v></c>`;
-  });
-}
-
-function setRowsHidden(sheetXml, rowNumbers, hidden = true) {
-  for (const rowNumber of rowNumbers) {
-    const rowPattern = new RegExp(`<row\\s+([^>]*\\br="${rowNumber}"[^>]*)>`);
-    sheetXml = sheetXml.replace(rowPattern, (_, attributes) => {
-      const cleanAttributes = attributes.replace(/\s+hidden="[^"]*"/g, '');
-      return `<row ${cleanAttributes}${hidden ? ' hidden="1"' : ''}>`;
-    });
-  }
-  return sheetXml;
 }
 
 function isSalaryTransaction(transaction) {
@@ -570,6 +550,7 @@ function calculateConfiguredDetails(transactions, reportCategories) {
     return {
       ...category,
       details,
+      manualTotal: manualTotals.get(category.id) || 0,
       total: details.reduce((sum, detail) => sum + detail.value, 0) + (manualTotals.get(category.id) || 0)
     };
   });
@@ -579,9 +560,6 @@ function calculateConfiguredDetails(transactions, reportCategories) {
     .reduce((sum, tx) => sum + tx.withdrawal, 0);
   const misc = configured.find(category => category.id === 'misc');
   if (misc) {
-    while (misc.details.length < misc.detailRows.length - 1) {
-      misc.details.push({ id: `empty-misc-${misc.details.length}`, label: '', keyword: '', value: 0 });
-    }
     misc.details.push({
       id: 'unclassified-withdrawals',
       label: '미분류 지출',
@@ -607,40 +585,97 @@ export function calculateReportCategoryView(transactions, reportCategories) {
   };
 }
 
-function applyConfiguredReport(sheetXml, transactions, reportCategories, sharedStrings) {
+function createSharedStringCell(ref, style, value, sharedStrings) {
+  if (!value) return `<c r="${ref}" s="${style}"/>`;
+  return `<c r="${ref}" s="${style}" t="s"><v>${sharedStrings.add(value)}</v></c>`;
+}
+
+function createNumberCell(ref, style, value, formula = '') {
+  const formulaXml = formula ? `<f>${escapeXml(formula)}</f>` : '';
+  return `<c r="${ref}" s="${style}">${formulaXml}<v>${Number(value) || 0}</v></c>`;
+}
+
+function createEmptyCell(ref, style) {
+  return `<c r="${ref}" s="${style}"/>`;
+}
+
+function createDetailRows(row, detail, sharedStrings) {
+  const hidden = detail.value > 0 ? '' : ' hidden="1"';
+  const firstRow = [
+    createSharedStringCell(`A${row}`, 14, detail.label, sharedStrings),
+    createEmptyCell(`B${row}`, 14),
+    createNumberCell(`C${row}`, 19, detail.value),
+    ...['D', 'E', 'F'].map(column => createEmptyCell(`${column}${row}`, 19)),
+    createSharedStringCell(`G${row}`, 14, detail.keyword, sharedStrings),
+    createEmptyCell(`H${row}`, 14),
+    createEmptyCell(`I${row}`, 14)
+  ].join('');
+  const secondRow = [
+    ...['A', 'B'].map(column => createEmptyCell(`${column}${row + 1}`, 14)),
+    ...['C', 'D', 'E', 'F'].map(column => createEmptyCell(`${column}${row + 1}`, 19)),
+    ...['G', 'H', 'I'].map(column => createEmptyCell(`${column}${row + 1}`, 14))
+  ].join('');
+  return `<row r="${row}" spans="1:9"${hidden} x14ac:dyDescent="0.3">${firstRow}</row>`
+    + `<row r="${row + 1}" spans="1:9"${hidden} x14ac:dyDescent="0.3">${secondRow}</row>`;
+}
+
+function createSummaryRows(row, category, detailStartRow, detailEndRow, sharedStrings) {
+  const formula = detailStartRow <= detailEndRow ? `SUM(C${detailStartRow}:C${detailEndRow})` : '';
+  const firstRow = [
+    createSharedStringCell(`A${row}`, 28, category.label, sharedStrings),
+    createEmptyCell(`B${row}`, 28),
+    createNumberCell(`C${row}`, 21, category.total, formula),
+    ...['D', 'E', 'F', 'G', 'H', 'I'].map(column => createEmptyCell(`${column}${row}`, 20))
+  ].join('');
+  const secondRow = [
+    ...['A', 'B'].map(column => createEmptyCell(`${column}${row + 1}`, 29)),
+    ...['C', 'D', 'E', 'F', 'G', 'H', 'I'].map(column => createEmptyCell(`${column}${row + 1}`, 22))
+  ].join('');
+  return `<row r="${row}" spans="1:9" ht="17.25" thickTop="1" x14ac:dyDescent="0.3">${firstRow}</row>`
+    + `<row r="${row + 1}" spans="1:9" ht="17.25" thickBot="1" x14ac:dyDescent="0.35">${secondRow}</row>`;
+}
+
+function buildDynamicConfiguredReport(sheetXml, transactions, reportCategories, sharedStrings) {
   const { configured } = calculateConfiguredDetails(transactions, reportCategories);
   sheetXml = replaceCellValue(sheetXml, 'C5', transactions.reduce((sum, tx) => sum + tx.deposit, 0));
+  const sheetDataMatch = sheetXml.match(/<sheetData>([\s\S]*?)<\/sheetData>/);
+  if (!sheetDataMatch) throw new Error('기준 양식의 시트 데이터를 찾을 수 없습니다.');
+  const headerRows = [...sheetDataMatch[1].matchAll(/<row\b[^>]*\br="(\d+)"[^>]*>[\s\S]*?<\/row>/g)]
+    .filter(match => Number(match[1]) <= 6)
+    .map(match => match[0])
+    .join('');
+  if (!headerRows.includes('r="6"')) throw new Error('기준 양식의 머리글 행을 찾을 수 없습니다.');
 
-  for (const category of reportCategories.filter(item => item.enabled === false)) {
-    for (const row of category.detailRows) {
-      sheetXml = replaceCellText(sheetXml, `A${row}`, '', sharedStrings);
-      sheetXml = replaceCellText(sheetXml, `G${row}`, '', sharedStrings);
-      sheetXml = replaceCellValue(sheetXml, `C${row}`, 0);
-      sheetXml = setRowsHidden(sheetXml, [row, row + 1], true);
-    }
-    sheetXml = replaceCellValue(sheetXml, `C${category.summaryRow}`, 0);
-    sheetXml = setRowsHidden(sheetXml, [category.summaryRow, category.summaryRow + 1], true);
-  }
-
+  const rows = [headerRows];
+  const merges = ['A1:I3', 'A4:B4', 'C4:F4', 'G4:I4', 'A5:B6', 'C5:F6', 'G5:I6'];
+  let currentRow = 7;
   for (const category of configured) {
-    category.detailRows.forEach((row, index) => {
-      const detail = category.details[index];
-      if (detail && detail.value > 0) {
-        sheetXml = replaceCellText(sheetXml, `A${row}`, detail.label, sharedStrings);
-        sheetXml = replaceCellText(sheetXml, `G${row}`, detail.keyword, sharedStrings);
-        sheetXml = replaceCellValue(sheetXml, `C${row}`, detail.value);
-        sheetXml = setRowsHidden(sheetXml, [row, row + 1], false);
-      } else {
-        sheetXml = replaceCellText(sheetXml, `A${row}`, '', sharedStrings);
-        sheetXml = replaceCellText(sheetXml, `G${row}`, '', sharedStrings);
-        sheetXml = replaceCellValue(sheetXml, `C${row}`, 0);
-        sheetXml = setRowsHidden(sheetXml, [row, row + 1], true);
-      }
-    });
-    sheetXml = replaceCellText(sheetXml, `A${category.summaryRow}`, category.label, sharedStrings);
-    sheetXml = replaceCellValue(sheetXml, `C${category.summaryRow}`, category.total);
+    const exportDetails = [...category.details];
+    if (category.manualTotal > 0) {
+      exportDetails.push({
+        id: `manual-${category.id}`,
+        label: '수동 분류',
+        keyword: '',
+        value: category.manualTotal
+      });
+    }
+    const detailStartRow = currentRow;
+    for (const detail of exportDetails) {
+      rows.push(createDetailRows(currentRow, detail, sharedStrings));
+      merges.push(`A${currentRow}:B${currentRow + 1}`, `C${currentRow}:F${currentRow + 1}`, `G${currentRow}:I${currentRow + 1}`);
+      currentRow += 2;
+    }
+    const detailEndRow = currentRow - 1;
+    rows.push(createSummaryRows(currentRow, category, detailStartRow, detailEndRow, sharedStrings));
+    merges.push(`A${currentRow}:B${currentRow + 1}`, `C${currentRow}:I${currentRow + 1}`);
+    currentRow += 2;
   }
-  return sheetXml;
+  const lastRow = Math.max(6, currentRow - 1);
+  const mergeXml = `<mergeCells count="${merges.length}">${merges.map(ref => `<mergeCell ref="${ref}"/>`).join('')}</mergeCells>`;
+  return sheetXml
+    .replace(/<dimension ref="[^"]+"\s*\/>/, `<dimension ref="A1:I${lastRow}"/>`)
+    .replace(/<sheetData>[\s\S]*?<\/sheetData>/, `<sheetData>${rows.join('')}</sheetData>`)
+    .replace(/<mergeCells\b[^>]*>[\s\S]*?<\/mergeCells>/, mergeXml);
 }
 
 function hideDisabledSummaryRows(sheetXml, enabledSummaryRows) {
@@ -659,6 +694,51 @@ function hideDisabledSummaryRows(sheetXml, enabledSummaryRows) {
   }
 
   return sheetXml;
+}
+
+async function removeStaleCalculationChain(zip) {
+  zip.remove('xl/calcChain.xml');
+
+  const relationshipsPath = 'xl/_rels/workbook.xml.rels';
+  const relationshipsFile = zip.file(relationshipsPath);
+  if (relationshipsFile) {
+    const relationshipsXml = await relationshipsFile.async('string');
+    zip.file(
+      relationshipsPath,
+      relationshipsXml.replace(
+        /<Relationship\b[^>]*\bType="[^"]*\/calcChain"[^>]*\/>/g,
+        ''
+      )
+    );
+  }
+
+  const contentTypesPath = '[Content_Types].xml';
+  const contentTypesFile = zip.file(contentTypesPath);
+  if (contentTypesFile) {
+    const contentTypesXml = await contentTypesFile.async('string');
+    zip.file(
+      contentTypesPath,
+      contentTypesXml.replace(
+        /<Override\b[^>]*\bPartName="\/xl\/calcChain\.xml"[^>]*\/>/g,
+        ''
+      )
+    );
+  }
+
+  const workbookPath = 'xl/workbook.xml';
+  const workbookFile = zip.file(workbookPath);
+  if (workbookFile) {
+    const workbookXml = await workbookFile.async('string');
+    zip.file(
+      workbookPath,
+      workbookXml.replace(/<calcPr\b([^>]*)\/>/, (_, attributes) => {
+        const cleaned = attributes
+          .replace(/\s+fullCalcOnLoad="[^"]*"/g, '')
+          .replace(/\s+forceFullCalc="[^"]*"/g, '');
+        return `<calcPr${cleaned} fullCalcOnLoad="1" forceFullCalc="1"/>`;
+      })
+    );
+  }
 }
 
 /**
@@ -683,12 +763,13 @@ export async function exportToExcel(transactions, rules, templateBuffer, options
   }
 
   let sheetXml = await sheetFile.async('string');
-  if (Array.isArray(options.reportCategories)) {
+  const hasDynamicReport = Array.isArray(options.reportCategories);
+  if (hasDynamicReport) {
     const sharedStringsPath = 'xl/sharedStrings.xml';
     const sharedStringsFile = zip.file(sharedStringsPath);
     if (!sharedStringsFile) throw new Error('result.xlsx 기준 양식의 공유 문자열을 찾을 수 없습니다.');
     const sharedStrings = createSharedStringWriter(await sharedStringsFile.async('string'));
-    sheetXml = applyConfiguredReport(sheetXml, transactions, options.reportCategories, sharedStrings);
+    sheetXml = buildDynamicConfiguredReport(sheetXml, transactions, options.reportCategories, sharedStrings);
     zip.file(sharedStringsPath, sharedStrings.toXml());
   } else {
     const cValues = await calculateReportValues(transactions);
@@ -701,6 +782,7 @@ export async function exportToExcel(transactions, rules, templateBuffer, options
     sheetXml = hideDisabledSummaryRows(sheetXml, enabledSummaryRows);
   }
   zip.file(sheetPath, sheetXml);
+  if (hasDynamicReport) await removeStaleCalculationChain(zip);
 
   return zip.generateAsync({
     type: 'arraybuffer',

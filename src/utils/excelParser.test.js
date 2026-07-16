@@ -7,6 +7,11 @@ import JSZip from 'jszip';
 import { calculateReportCategoryView, exportToExcel, parseExcelTransactions } from './excelParser.js';
 import { cloneDefaultReportCategories } from './reportConfig.js';
 
+function findRowByValue(sheet, column, value) {
+  const cellRef = Object.keys(sheet).find(ref => ref.startsWith(column) && sheet[ref]?.v === value);
+  return cellRef ? Number(cellRef.slice(column.length)) : null;
+}
+
 test('keeps the exact withdrawal column when an input/output bank column follows it', async () => {
   const worksheet = XLSX.utils.aoa_to_sheet([
     ['거래 내역'],
@@ -86,7 +91,7 @@ test('can remove and add predefined summary rows without changing report structu
   assert.equal(report['!merges'].length, 136);
 });
 
-test('exports saved detail categories, hides removed items, and recalculates the major category', async () => {
+test('exports saved detail categories with a dynamically resized major category', async () => {
   const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
   const categories = cloneDefaultReportCategories();
   const utilities = categories.find(category => category.id === 'utilities');
@@ -104,6 +109,9 @@ test('exports saved detail categories, hides removed items, and recalculates the
   const zip = await JSZip.loadAsync(output);
   const sheetXml = await zip.file('xl/worksheets/sheet1.xml').async('string');
   const sharedStringsXml = await zip.file('xl/sharedStrings.xml').async('string');
+  const workbookRelationshipsXml = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+  const contentTypesXml = await zip.file('[Content_Types].xml').async('string');
+  const workbookXml = await zip.file('xl/workbook.xml').async('string');
   const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
   const report = workbook.Sheets.Sheet1;
 
@@ -112,17 +120,19 @@ test('exports saved detail categories, hides removed items, and recalculates the
   assert.equal(report.C11.v, 105250);
   assert.equal(report.A13.v, '전기료');
   assert.equal(report.C13.v, 220000);
-  assert.equal(report.C19.v, 325250);
-  assert.equal(report.A19.v, '관리비');
+  assert.equal(report.C15.v, 325250);
+  assert.equal(report.C15.f, 'SUM(C11:C14)');
+  assert.equal(report.A15.v, '관리비');
   assert.equal(/<c\b[^>]*\bt="[^"]*"[^>]*\bt="/.test(sheetXml), false);
   assert.match(sheetXml, /<c r="A11" s="14" t="s"><v>\d+<\/v><\/c>/);
   assert.match(sharedStringsXml, /<si><t>도시가스<\/t><\/si>/);
   assert.equal(sheetXml.includes('inlineStr'), false);
-  assert.equal(report['!rows'][14].hidden, true);
-  assert.equal(report['!rows'][16].hidden, true);
-  assert.equal(report['!rows'][20].hidden, true);
-  assert.equal(report.A21.v, '');
-  assert.equal(report.G21.v, '');
+  assert.equal(zip.file('xl/calcChain.xml'), null);
+  assert.equal(workbookRelationshipsXml.includes('calcChain'), false);
+  assert.equal(contentTypesXml.includes('calcChain'), false);
+  assert.match(workbookXml, /<calcPr\b[^>]*fullCalcOnLoad="1"[^>]*forceFullCalc="1"\/>/);
+  assert.equal(report.A17.v, '지출카드(수협)');
+  assert.equal(report['!ref'], 'A1:I92');
 });
 
 test('adds unclassified withdrawals to misc so exported expenses match the dashboard total', async () => {
@@ -160,9 +170,10 @@ test('does not match a short description against a longer keyword', async () => 
   const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
   const report = workbook.Sheets.Sheet1;
 
-  assert.equal(report.C11.v, 0);
-  assert.equal(report.C93.v, 50000);
-  assert.equal(report.C95.v, 50000);
+  assert.equal(report.C9.v, 0);
+  assert.equal(report.C19.v, 50000);
+  assert.equal(report.A19.v, '미분류 지출');
+  assert.equal(report.C21.v, 50000);
 });
 
 test('uses the same major category totals for the dashboard and exported report', () => {
@@ -198,7 +209,7 @@ test('manual category overrides take precedence over salary name detection', () 
   assert.equal(view.categories.find(category => category.id === 'misc').total, 1870000);
 });
 
-test('disabled major categories are excluded and hidden in the exported report', async () => {
+test('disabled major categories are excluded from the dynamically generated report', async () => {
   const categories = cloneDefaultReportCategories();
   categories.find(category => category.id === 'utilities').enabled = false;
   const transactions = [{ description: '011코원에너지', withdrawal: 105250, deposit: 0 }];
@@ -212,8 +223,40 @@ test('disabled major categories are excluded and hidden in the exported report',
   const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
   const report = workbook.Sheets.Sheet1;
 
-  assert.equal(report.C19.v, 0);
-  assert.equal(report['!rows'][18].hidden, true);
-  assert.equal(report['!rows'][10].hidden, true);
-  assert.equal(report.C95.v, 105250);
+  assert.equal(findRowByValue(report, 'A', '공과금'), null);
+  const unclassifiedRow = findRowByValue(report, 'A', '미분류 지출');
+  const miscSummaryRow = findRowByValue(report, 'A', '기타잡비');
+  assert.equal(report[`C${unclassifiedRow}`].v, 105250);
+  assert.equal(report[`C${miscSummaryRow}`].v, 105250);
+  assert.equal(report['!ref'], 'A1:I86');
+});
+
+test('exports more major and detail categories than the original template capacity', async () => {
+  const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
+  const categories = Array.from({ length: 8 }, (_, categoryIndex) => ({
+    id: `dynamic-${categoryIndex}`,
+    label: `동적 카테고리 ${categoryIndex + 1}`,
+    details: Array.from({ length: 10 }, (_, detailIndex) => ({
+      id: `dynamic-${categoryIndex}-${detailIndex}`,
+      label: `항목 ${categoryIndex + 1}-${detailIndex + 1}`,
+      keyword: `업체-${categoryIndex + 1}번-${detailIndex + 1}호`
+    }))
+  }));
+  categories.push({ id: 'misc', label: '기타잡비', enabled: true, details: [] });
+  const transactions = categories.slice(0, 8).flatMap(category => category.details.map((detail, index) => ({
+    description: `${detail.keyword} 결제`,
+    withdrawal: index + 1,
+    deposit: 0
+  })));
+
+  const output = await exportToExcel(transactions, {}, template, { reportCategories: categories });
+  const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
+  const report = workbook.Sheets.Sheet1;
+  const lastCategoryRow = findRowByValue(report, 'A', '동적 카테고리 8');
+
+  assert.ok(lastCategoryRow > 96);
+  assert.equal(report[`C${lastCategoryRow}`].v, 55);
+  assert.equal(report[`C${lastCategoryRow}`].f, `SUM(C${lastCategoryRow - 20}:C${lastCategoryRow - 1})`);
+  assert.equal(report['!ref'], 'A1:I186');
+  assert.equal(findRowByValue(report, 'A', '항목 8-10'), lastCategoryRow - 2);
 });
