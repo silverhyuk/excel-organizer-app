@@ -523,7 +523,7 @@ function calculateConfiguredDetails(transactions, reportCategories) {
 
   for (const category of activeCategories) {
     for (const detail of category.details) {
-      if (!detail.keyword) continue;
+      if (detail.matchType === 'salary') continue;
       const ruleKey = getDetailRuleKey(detail);
       keywordTotals.set(ruleKey, (keywordTotals.get(ruleKey) || 0) + 1);
     }

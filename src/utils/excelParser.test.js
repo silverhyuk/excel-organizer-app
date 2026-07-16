@@ -255,6 +255,23 @@ test('keeps KT internet payments out of the KT phone detail', () => {
   assert.equal(expenses.details.find(detail => detail.label === 'KT(인터넷)').value, 150000);
 });
 
+test('distributes duplicate alias-only rules without allocating the same transaction twice', () => {
+  const categories = [
+    { id: 'first', label: '첫 번째', details: [{ id: 'first-vendor', label: '업체 1', keyword: '', aliases: ['공통업체'], matchType: 'contains' }] },
+    { id: 'second', label: '두 번째', details: [{ id: 'second-vendor', label: '업체 2', keyword: '', aliases: ['공통업체'], matchType: 'contains' }] },
+    { id: 'misc', label: '기타잡비', details: [] }
+  ];
+  const transactions = [
+    { description: '공통업체 첫 결제', withdrawal: 100000, deposit: 0 },
+    { description: '공통업체 둘째 결제', withdrawal: 200000, deposit: 0 }
+  ];
+
+  const view = calculateReportCategoryView(transactions, categories);
+
+  assert.equal(view.categories.find(category => category.id === 'first').total, 100000);
+  assert.equal(view.categories.find(category => category.id === 'second').total, 200000);
+});
+
 test('manual category overrides take precedence over salary name detection', () => {
   const categories = cloneDefaultReportCategories();
   const transactions = [

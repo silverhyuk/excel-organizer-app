@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Upload, 
   Download, 
@@ -63,6 +63,8 @@ function App() {
   const [fileName, setFileName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [showEasterEgg, setShowEasterEgg] = useState(false);
+  const reportCategoriesRef = useRef(reportCategories);
+  const learnSaveQueueRef = useRef(Promise.resolve());
 
   // Editing Rule State
   const [editingCategoryKey, setEditingCategoryKey] = useState('hotel');
@@ -99,6 +101,10 @@ function App() {
     const timeoutId = window.setTimeout(() => setReviewStatus(null), 5000);
     return () => window.clearTimeout(timeoutId);
   }, [reviewStatus]);
+
+  useEffect(() => {
+    reportCategoriesRef.current = reportCategories;
+  }, [reportCategories]);
 
   // Re-classify all transactions when rules change or new transactions load
   useEffect(() => {
@@ -363,17 +369,25 @@ function App() {
     if (!shouldLearn || !transaction) return;
 
     try {
-      const learned = addLearnedVendorRule(reportCategories, categoryId, transaction.description);
-      if (!learned.added) {
+      const learnAndSave = async () => {
+        const learned = addLearnedVendorRule(reportCategoriesRef.current, categoryId, transaction.description);
+        if (!learned.added) return { added: false, categories: reportCategoriesRef.current };
+        const saved = await saveReportCategories(learned.categories);
+        reportCategoriesRef.current = saved;
+        setReportCategories(saved);
+        return { added: true, categories: saved };
+      };
+      const queuedSave = learnSaveQueueRef.current.then(learnAndSave, learnAndSave);
+      learnSaveQueueRef.current = queuedSave.catch(() => undefined);
+      const result = await queuedSave;
+      if (!result.added) {
         setReviewStatus({ type: 'info', message: '이미 같은 거래처에 적용되는 규칙이 있습니다.' });
         return;
       }
-      const saved = await saveReportCategories(learned.categories);
-      setReportCategories(saved);
       setTransactions(current => current.map(tx => (
         tx.id === txId ? { ...tx, categoryOverride: undefined } : tx
       )));
-      const categoryLabel = saved.find(category => category.id === categoryId)?.label || '선택한 카테고리';
+      const categoryLabel = result.categories.find(category => category.id === categoryId)?.label || '선택한 카테고리';
       setReviewStatus({
         type: 'success',
         message: `'${transaction.description}' 거래처를 ${categoryLabel} 규칙으로 저장했습니다.`

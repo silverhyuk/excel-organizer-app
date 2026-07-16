@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import {
   createLearnedVendorDetail,
+  getDetailPatterns,
   matchesDetail,
   normalizeMatchType,
   validateMatchPattern
@@ -127,6 +128,9 @@ export function normalizeReportCategories(config) {
 export function validateReportCategories(categories) {
   for (const category of categories) {
     for (const detail of category.details) {
+      if (detail.matchType !== 'salary' && getDetailPatterns(detail).length === 0) {
+        return `${category.label} > ${detail.label}: 거래처 키워드 또는 별칭이 필요합니다.`;
+      }
       if (detail.matchType !== 'regex') continue;
       for (const pattern of [detail.keyword, ...(detail.aliases || [])].filter(Boolean)) {
         const error = validateMatchPattern(pattern, detail.matchType);

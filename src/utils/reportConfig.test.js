@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { addLearnedVendorRule, createReportDetail, normalizeReportCategories } from './reportConfig.js';
+import {
+  addLearnedVendorRule,
+  createReportDetail,
+  normalizeReportCategories,
+  validateReportCategories
+} from './reportConfig.js';
 
 test('preserves arbitrary major categories and every detail item when saving configuration', () => {
   const categories = Array.from({ length: 12 }, (_, categoryIndex) => ({
@@ -75,4 +80,12 @@ test('creates report detail ids through the safe config id generator', () => {
 
   assert.match(detail.id, /^detail-/);
   assert.equal(detail.matchType, 'contains');
+});
+
+test('rejects a non-salary detail without any match patterns', () => {
+  const error = validateReportCategories([
+    { id: 'utilities', label: '공과금', details: [{ id: 'empty', label: '전기', keyword: '', aliases: [], matchType: 'contains' }] }
+  ]);
+
+  assert.match(error, /키워드 또는 별칭/);
 });
