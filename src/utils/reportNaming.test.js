@@ -32,6 +32,16 @@ test('infers the business name from a typical bank export file name', () => {
   assert.equal(inferBusinessName('2026년 6월 입출금내역.xls'), '사업장');
 });
 
+test('ignores a decomposed generic bank export name and account suffix', () => {
+  const sourceFileName = '거래내역조회 2084( ~ ).xlsx'.normalize('NFD');
+
+  assert.equal(inferBusinessName(sourceFileName), '사업장');
+  assert.deepEqual(createReportNaming([{ date: '2026-06-15' }], sourceFileName), {
+    title: '사업장 2026-06 월 정산',
+    fileName: '사업장_2026-06_월정산.xlsx'
+  });
+});
+
 test('creates editable report defaults from the source file and transaction period', () => {
   const naming = createReportNaming(
     [{ date: '2026-06-03' }, { date: '2026-06-28' }],

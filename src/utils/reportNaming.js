@@ -18,9 +18,12 @@ export function detectSettlementPeriod(transactions) {
 
 export function inferBusinessName(sourceFileName) {
   const baseName = String(sourceFileName || '')
+    .normalize('NFC')
     .replace(/\.xlsx?$/i, '')
+    .replace(/\b\d{2,}\s*\(\s*[^)]*~[^)]*\)\s*/g, ' ')
     .replace(/\d{4}\s*(?:[-_.]|년)\s*\d{1,2}\s*(?:월)?(?:\s*[-_.]?\s*\d{1,2}\s*(?:일)?)?/g, ' ')
-    .replace(/(?:입출금|거래|계좌|정산)\s*내역\s*$/i, ' ')
+    .replace(/(?:입출금|계좌)?\s*거래\s*내역\s*(?:조회|서)?/gi, ' ')
+    .replace(/(?:입출금|계좌|정산)\s*내역\s*(?:조회|서)?/gi, ' ')
     .replace(/[_\-.\s]+/g, ' ')
     .trim();
 
