@@ -25,21 +25,33 @@ function findDuplicateTransactions(transactions) {
 }
 
 function hasBalance(transaction) {
-  return transaction.hasBalance !== false && Number.isFinite(transaction.balance);
+  return transaction.hasBalance === true && Number.isFinite(transaction.balance);
+}
+
+function findAmbiguousSequenceDates(transactions) {
+  const dateCounts = new Map();
+  for (const transaction of transactions) {
+    const date = String(transaction.date || '').trim();
+    if (!date) continue;
+    dateCounts.set(date, (dateCounts.get(date) || 0) + 1);
+  }
+  return new Set([...dateCounts].filter(([, count]) => count > 1).map(([date]) => date));
 }
 
 function findBalanceAnomalies(transactions) {
   const anomalies = [];
+  const ambiguousSequenceDates = findAmbiguousSequenceDates(transactions);
   let previous = null;
 
   for (const transaction of transactions) {
-    if (!hasBalance(transaction)) {
+    const date = String(transaction.date || '').trim();
+    if (!hasBalance(transaction) || ambiguousSequenceDates.has(date)) {
       previous = null;
       continue;
     }
     if (previous) {
       const expected = previous.balance + (Number(transaction.deposit) || 0) - (Number(transaction.withdrawal) || 0);
-      if (Math.abs(expected - transaction.balance) > 1) {
+      if (Math.abs(expected - transaction.balance) > 0.1) {
         anomalies.push({ previous, transaction, expected });
       }
     }
@@ -53,7 +65,7 @@ export function createSettlementValidationReport(transactions, reportCategories)
   const reportView = calculateReportCategoryView(transactions, reportCategories);
   const dashboardDeposit = transactions.reduce((sum, transaction) => sum + (Number(transaction.deposit) || 0), 0);
   const dashboardWithdrawal = transactions.reduce((sum, transaction) => sum + (Number(transaction.withdrawal) || 0), 0);
-  const reportDeposit = dashboardDeposit;
+  const reportDeposit = reportView.incomeTotal;
   const reportWithdrawal = reportView.categories.reduce((sum, category) => sum + category.total, 0);
   const errors = [];
   const warnings = [];
@@ -62,7 +74,7 @@ export function createSettlementValidationReport(transactions, reportCategories)
     errors.push({
       id: 'totals-mismatch',
       title: '대시보드와 보고서 합계가 일치하지 않습니다.',
-      description: `대시보드 지출 ₩${dashboardWithdrawal.toLocaleString()} / 보고서 지출 ₩${reportWithdrawal.toLocaleString()}`,
+      description: `수입 ₩${dashboardDeposit.toLocaleString()} / ₩${reportDeposit.toLocaleString()} · 지출 ₩${dashboardWithdrawal.toLocaleString()} / ₩${reportWithdrawal.toLocaleString()} (대시보드 / 보고서)`,
       transactionIds: []
     });
   }
@@ -70,10 +82,11 @@ export function createSettlementValidationReport(transactions, reportCategories)
   const unclassified = reportView.unclassifiedIndexes.map(index => transactions[index]);
   if (unclassified.length > 0) {
     const amount = unclassified.reduce((sum, transaction) => sum + transaction.withdrawal, 0);
+    const miscLabel = reportView.categories.find(category => category.id === 'misc')?.label || '기타잡비';
     warnings.push({
       id: 'unclassified',
       title: `미분류 거래 ${unclassified.length}건`,
-      description: `총 ₩${amount.toLocaleString()}이 기타잡비의 미분류 지출로 반영됩니다.`,
+      description: `총 ₩${amount.toLocaleString()}이 ${miscLabel}의 미분류 지출로 반영됩니다.`,
       transactionIds: transactionIds(unclassified)
     });
   }
