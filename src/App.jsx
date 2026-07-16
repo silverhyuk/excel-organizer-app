@@ -30,6 +30,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [reportCategories, setReportCategories] = useState(cloneDefaultReportCategories);
   const [editingReportCategoryId, setEditingReportCategoryId] = useState('utilities');
   const [newDetailLabel, setNewDetailLabel] = useState('');
@@ -142,7 +143,8 @@ function App() {
   };
 
   // Export current transactions to excel
-  const handleExport = async () => {
+  const handleExport = async (event) => {
+    event?.preventDefault();
     if (transactions.length === 0) return;
     
     try {
@@ -167,6 +169,7 @@ function App() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      setIsExportModalOpen(false);
     } catch (err) {
       console.error(err);
       alert(err.message || '엑셀 내보내기 중 오류가 발생했습니다.');
@@ -325,6 +328,7 @@ function App() {
     setFileName('');
     setReportTitle('');
     setDownloadFileName('');
+    setIsExportModalOpen(false);
     setSearchTerm('');
     setErrorMsg('');
   };
@@ -389,43 +393,12 @@ function App() {
             <button className="secondary" onClick={handleResetApp}>
               <RefreshCw size={16} /> 다른 파일 업로드
             </button>
-            <button onClick={handleExport}>
+            <button onClick={() => setIsExportModalOpen(true)}>
               <Download size={16} /> 정리된 엑셀 다운로드
             </button>
           </div>
         )}
       </header>
-
-      {transactions.length > 0 && (
-        <section className="glass-panel export-settings" aria-labelledby="export-settings-title">
-          <div className="export-settings-heading">
-            <div>
-              <h2 id="export-settings-title">내보내기 정보</h2>
-              <p>거래 기간을 반영한 기본값입니다. 다운로드 전에 자유롭게 수정할 수 있습니다.</p>
-            </div>
-            <span>{fileName}</span>
-          </div>
-          <div className="export-settings-fields">
-            <label>
-              보고서 제목
-              <input
-                value={reportTitle}
-                onChange={(event) => setReportTitle(event.target.value)}
-                placeholder="보고서 제목"
-              />
-            </label>
-            <label>
-              다운로드 파일명
-              <input
-                value={downloadFileName}
-                onChange={(event) => setDownloadFileName(event.target.value)}
-                onBlur={() => setDownloadFileName(normalizeDownloadFileName(downloadFileName))}
-                placeholder="사업장_YYYY-MM_월정산.xlsx"
-              />
-            </label>
-          </div>
-        </section>
-      )}
 
       {/* Main Content Area */}
       {transactions.length === 0 ? (
@@ -700,6 +673,76 @@ function App() {
 
           </div>
         </>
+      )}
+
+      {/* Export Settings Modal */}
+      {isExportModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsExportModalOpen(false)}>
+          <form
+            className="modal-content glass-panel export-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="export-modal-title"
+            onSubmit={handleExport}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.stopPropagation();
+                setIsExportModalOpen(false);
+              }
+            }}
+          >
+            <div className="export-modal-header">
+              <div>
+                <h3 id="export-modal-title">내보내기 정보</h3>
+                <p>보고서 제목과 파일명을 확인한 뒤 다운로드하세요.</p>
+              </div>
+              <button
+                type="button"
+                className="secondary export-modal-close"
+                onClick={() => setIsExportModalOpen(false)}
+                aria-label="내보내기 팝업 닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="export-modal-source">
+              <span>원본 파일</span>
+              <strong>{fileName}</strong>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="report-title">보고서 제목</label>
+              <input
+                id="report-title"
+                value={reportTitle}
+                onChange={(event) => setReportTitle(event.target.value)}
+                placeholder="보고서 제목"
+                autoFocus
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="download-file-name">다운로드 파일명</label>
+              <input
+                id="download-file-name"
+                value={downloadFileName}
+                onChange={(event) => setDownloadFileName(event.target.value)}
+                onBlur={() => setDownloadFileName(normalizeDownloadFileName(downloadFileName))}
+                placeholder="사업장_YYYY-MM_월정산.xlsx"
+              />
+            </div>
+
+            <div className="export-modal-actions">
+              <button type="button" className="secondary" onClick={() => setIsExportModalOpen(false)}>
+                취소
+              </button>
+              <button type="submit">
+                <Download size={16} /> 다운로드
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {/* Rules Manager Modal */}
