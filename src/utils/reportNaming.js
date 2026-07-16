@@ -32,6 +32,7 @@ export function inferBusinessName(sourceFileName) {
 
 export function normalizeDownloadFileName(fileName) {
   let baseName = String(fileName || '')
+    .normalize('NFC')
     .trim()
     .replace(/\.xlsx?$/i, '')
     .replace(INVALID_FILE_NAME_CHARS, '_')

@@ -77,13 +77,18 @@ test('exports summary values while preserving the exact result.xlsx layout', asy
 
 test('writes an editable report title into the exported workbook', async () => {
   const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
+  const reportTitle = 'A&B <해오름호텔> 2026-06 월 정산';
   const output = await exportToExcel([], {}, template, {
     reportCategories: cloneDefaultReportCategories(),
-    reportTitle: 'A&B <해오름호텔> 2026-06 월 정산'
+    reportTitle: reportTitle.normalize('NFD')
   });
   const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
+  const zip = await JSZip.loadAsync(output);
+  const sharedStringsXml = await zip.file('xl/sharedStrings.xml').async('string');
 
-  assert.equal(workbook.Sheets.Sheet1.A1.v, 'A&B <해오름호텔> 2026-06 월 정산');
+  assert.equal(workbook.Sheets.Sheet1.A1.v, reportTitle);
+  assert.equal(sharedStringsXml.includes('해오름호텔'), true);
+  assert.equal(sharedStringsXml.includes('해오름호텔'.normalize('NFD')), false);
 });
 
 test('can remove and add predefined summary rows without changing report structure', async () => {

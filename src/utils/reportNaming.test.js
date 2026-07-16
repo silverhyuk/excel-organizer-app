@@ -59,5 +59,6 @@ test('removes unsafe file name characters and guarantees an xlsx extension', () 
   assert.equal(normalizeDownloadFileName('CON'), '_CON.xlsx');
   assert.equal(normalizeDownloadFileName('CON.txt'), '_CON.txt.xlsx');
   assert.equal(normalizeDownloadFileName('해오름.xlsx '), '해오름.xlsx');
+  assert.equal(normalizeDownloadFileName('해오름_월정산.xlsx'.normalize('NFD')), '해오름_월정산.xlsx');
   assert.equal(normalizeDownloadFileName('...'), '월정산.xlsx');
 });

@@ -461,9 +461,9 @@ function createSharedStringWriter(sharedStringsXml) {
   const additionIndexes = new Map();
   return {
     add(value) {
-      const text = String(value);
+      const text = String(value).normalize('NFC');
       if (additionIndexes.has(text)) return additionIndexes.get(text);
-      additions.push(`<si><t>${escapeXml(value)}</t></si>`);
+      additions.push(`<si><t>${escapeXml(text)}</t></si>`);
       const index = initialUniqueCount + additions.length - 1;
       additionIndexes.set(text, index);
       return index;
