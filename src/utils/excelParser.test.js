@@ -90,6 +90,7 @@ test('exports saved detail categories, hides removed items, and recalculates the
   const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
   const categories = cloneDefaultReportCategories();
   const utilities = categories.find(category => category.id === 'utilities');
+  utilities.label = '관리비';
   utilities.details = [
     { id: 'gas-custom', label: '도시가스', keyword: '코원에너지' },
     { id: 'electric-custom', label: '전기료', keyword: '한전' }
@@ -112,6 +113,7 @@ test('exports saved detail categories, hides removed items, and recalculates the
   assert.equal(report.A13.v, '전기료');
   assert.equal(report.C13.v, 220000);
   assert.equal(report.C19.v, 325250);
+  assert.equal(report.A19.v, '관리비');
   assert.equal(/<c\b[^>]*\bt="[^"]*"[^>]*\bt="/.test(sheetXml), false);
   assert.match(sheetXml, /<c r="A11" s="14" t="s"><v>\d+<\/v><\/c>/);
   assert.match(sharedStringsXml, /<si><t>도시가스<\/t><\/si>/);
@@ -176,4 +178,22 @@ test('uses the same major category totals for the dashboard and exported report'
   assert.deepEqual(view.assignments, ['utilities', 'misc', 'income']);
   assert.equal(view.categories.find(category => category.id === 'utilities').total, 105250);
   assert.equal(view.categories.find(category => category.id === 'misc').total, 330000);
+});
+
+test('manual category overrides take precedence over salary name detection', () => {
+  const categories = cloneDefaultReportCategories();
+  const transactions = [
+    {
+      description: '003윤영기',
+      withdrawal: 1870000,
+      deposit: 0,
+      categoryOverride: 'misc'
+    }
+  ];
+
+  const view = calculateReportCategoryView(transactions, categories);
+
+  assert.deepEqual(view.assignments, ['misc']);
+  assert.equal(view.categories.find(category => category.id === 'salary').total, 0);
+  assert.equal(view.categories.find(category => category.id === 'misc').total, 1870000);
 });

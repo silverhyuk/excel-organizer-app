@@ -513,8 +513,19 @@ function isSalaryTransaction(transaction) {
 function calculateConfiguredDetails(transactions, reportCategories) {
   const allocatedTransactions = new Set();
   const categoryAssignments = new Map();
+  const configuredCategoryIds = new Set(reportCategories.map(category => category.id));
+  const manualTotals = new Map();
   const keywordTotals = new Map();
   const keywordIndexes = new Map();
+
+  for (const transaction of transactions) {
+    const categoryId = transaction.categoryOverride;
+    if (!(transaction.withdrawal > 0) || !configuredCategoryIds.has(categoryId)) continue;
+    allocatedTransactions.add(transaction);
+    categoryAssignments.set(transaction, categoryId);
+    manualTotals.set(categoryId, (manualTotals.get(categoryId) || 0) + transaction.withdrawal);
+  }
+
   for (const category of reportCategories) {
     for (const detail of category.details) {
       if (!detail.keyword) continue;
@@ -555,7 +566,11 @@ function calculateConfiguredDetails(transactions, reportCategories) {
       });
       return { ...detail, value: selected.reduce((sum, tx) => sum + tx.withdrawal, 0) };
     });
-    return { ...category, details, total: details.reduce((sum, detail) => sum + detail.value, 0) };
+    return {
+      ...category,
+      details,
+      total: details.reduce((sum, detail) => sum + detail.value, 0) + (manualTotals.get(category.id) || 0)
+    };
   });
 
   const unclassifiedTotal = transactions
@@ -610,7 +625,7 @@ function applyConfiguredReport(sheetXml, transactions, reportCategories, sharedS
         sheetXml = setRowsHidden(sheetXml, [row, row + 1], true);
       }
     });
-    sheetXml = replaceCellText(sheetXml, `A${category.summaryRow}`, category.id === 'salary' ? '총 급여' : category.label, sharedStrings);
+    sheetXml = replaceCellText(sheetXml, `A${category.summaryRow}`, category.label, sharedStrings);
     sheetXml = replaceCellValue(sheetXml, `C${category.summaryRow}`, category.total);
   }
   return sheetXml;

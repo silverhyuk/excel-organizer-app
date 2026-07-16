@@ -553,6 +553,14 @@ input:focus, select:focus {
   justify-content: center;
 }
 
+.report-category-name {
+  margin-bottom: 1rem;
+}
+
+.report-category-name input {
+  width: 100%;
+}
+
 .report-detail-header {
   display: flex;
   justify-content: space-between;

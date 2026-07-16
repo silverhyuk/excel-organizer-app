@@ -163,6 +163,13 @@ function App() {
     )));
   };
 
+  const updateReportCategoryLabel = (value) => {
+    setReportConfigStatus('');
+    setReportCategories(categories => categories.map(category => (
+      category.id === editingReportCategoryId ? { ...category, label: value } : category
+    )));
+  };
+
   const handleRemoveReportDetail = (detailId) => {
     setReportConfigStatus('');
     setReportCategories(categories => categories.map(category => (
@@ -236,6 +243,13 @@ function App() {
     
     setRules(updatedRules);
     saveRules(updatedRules);
+  };
+
+  // Manually selected categories take precedence over automatic report rules.
+  const handleManualCategoryChange = (txId, categoryId) => {
+    setTransactions(current => current.map(tx => (
+      tx.id === txId ? { ...tx, categoryOverride: categoryId } : tx
+    )));
   };
 
   // Reset to default rules
@@ -557,9 +571,24 @@ function App() {
                             <div style={{ fontWeight: 500 }}>{tx.description}</div>
                           </td>
                           <td>
-                            <span className={`category-badge ${tx.category}`}>
-                              {categoryStats.find(stat => stat.key === tx.category)?.name}
-                            </span>
+                            {tx.withdrawal > 0 ? (
+                              <select
+                                value={tx.category}
+                                onChange={(event) => handleManualCategoryChange(tx.id, event.target.value)}
+                                aria-label={`${tx.description} 카테고리`}
+                                style={{ minWidth: '105px', padding: '0.3rem 0.5rem', fontSize: '0.8rem', fontWeight: 500 }}
+                              >
+                                {reportCategories.map(category => (
+                                  <option key={category.id} value={category.id}>
+                                    {category.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className={`category-badge ${tx.category}`}>
+                                {categoryStats.find(stat => stat.key === tx.category)?.name}
+                              </span>
+                            )}
                           </td>
                           <td className="amount-col out">
                             {tx.withdrawal > 0 ? `₩${tx.withdrawal.toLocaleString()}` : '-'}
@@ -667,7 +696,7 @@ function App() {
               <div>
                 <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>큰 카테고리 설정</h3>
                 <p style={{ marginTop: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                  다운로드할 보고서에 표시할 큰 카테고리를 선택하세요.
+                  큰 카테고리 이름과 그 안의 작은 카테고리 항목을 수정하세요.
                 </p>
               </div>
               <button className="secondary" style={{ padding: '0.25rem', borderRadius: '50%' }} onClick={() => setIsSummaryModalOpen(false)}>
@@ -697,8 +726,17 @@ function App() {
               const isFull = category.details.length >= detailLimit;
               return (
                 <>
+                  <div className="form-group report-category-name">
+                    <label htmlFor="report-category-label">큰 카테고리 이름</label>
+                    <input
+                      id="report-category-label"
+                      value={category.label}
+                      onChange={(event) => updateReportCategoryLabel(event.target.value)}
+                      placeholder="큰 카테고리 이름"
+                    />
+                  </div>
                   <div className="report-detail-header">
-                    <strong>{category.label} 상세 항목</strong>
+                    <strong>작은 카테고리 항목</strong>
                     <span>{category.details.length}/{detailLimit}개</span>
                   </div>
                   <div className="report-detail-list">
@@ -737,7 +775,7 @@ function App() {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-glass)', paddingTop: '1.25rem', marginTop: '1.25rem' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                {reportConfigStatus || '설정은 앱 전용 JSON 파일에 저장됩니다.'}
+                {reportConfigStatus || '저장 버튼을 누르면 다음 실행에도 설정이 유지됩니다.'}
               </span>
               <div style={{ display: 'flex', gap: '0.6rem' }}>
                 <button className="secondary" onClick={() => setReportCategories(cloneDefaultReportCategories())}>기본값 복원</button>

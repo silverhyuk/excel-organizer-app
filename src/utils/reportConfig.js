@@ -63,6 +63,7 @@ function normalizeConfig(config) {
     if (!saved || !Array.isArray(saved.details)) return structuredClone(defaultCategory);
     return {
       ...structuredClone(defaultCategory),
+      label: String(saved.label || defaultCategory.label).trim() || defaultCategory.label,
       details: saved.details.slice(0, defaultCategory.id === 'misc' ? defaultCategory.detailRows.length - 1 : defaultCategory.detailRows.length).map(detail => ({
         id: String(detail.id || crypto.randomUUID()),
         label: String(detail.label || '').trim(),
