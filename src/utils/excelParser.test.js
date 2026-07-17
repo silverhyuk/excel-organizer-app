@@ -27,6 +27,21 @@ test('keeps the exact withdrawal column when an input/output bank column follows
   assert.equal(transactions.length, 2);
   assert.equal(transactions.reduce((sum, tx) => sum + tx.withdrawal, 0), 105250);
   assert.equal(transactions.reduce((sum, tx) => sum + tx.deposit, 0), 250000);
+  assert.equal(transactions.every(tx => tx.hasBalance), true);
+});
+
+test('marks a missing balance cell as unavailable even when the balance column exists', async () => {
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['일자', '거래내용', '입금', '출금', '잔액'],
+    ['2026-06-01', '예약 매출', 250000, '']
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, '거래내역');
+  const input = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+  const [transaction] = await parseExcelTransactions(input);
+
+  assert.equal(transaction.hasBalance, false);
 });
 
 test('rejects unknown headers instead of guessing an input and output column order', async () => {
@@ -203,6 +218,7 @@ test('uses the same major category totals for the dashboard and exported report'
   const view = calculateReportCategoryView(transactions, categories);
 
   assert.deepEqual(view.assignments, ['utilities', 'misc', 'income']);
+  assert.equal(view.incomeTotal, 500000);
   assert.equal(view.categories.find(category => category.id === 'utilities').total, 105250);
   assert.equal(view.categories.find(category => category.id === 'misc').total, 330000);
 });

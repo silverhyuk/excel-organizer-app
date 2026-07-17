@@ -12,13 +12,17 @@ import {
   TrendingUp, 
   DollarSign, 
   FileSpreadsheet,
-  AlertCircle
+  AlertCircle,
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2
 } from 'lucide-react';
 import { calculateReportCategoryView, parseExcelTransactions, exportToExcel } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
 import { createReportCategory, cloneDefaultReportCategories, loadReportCategories, saveReportCategories } from './utils/reportConfig';
 import { createReportNaming, normalizeDownloadFileName } from './utils/reportNaming';
 import { sumTransactionAmounts } from './utils/transactionTotals';
+import { createSettlementValidationReport } from './utils/settlementValidation';
 import BaldDodgeGame from './components/BaldDodgeGame';
 import FinancialCharts from './components/FinancialCharts';
 import reportTemplateUrl from '../result.xlsx?url';
@@ -42,6 +46,7 @@ function App() {
   const [downloadFileName, setDownloadFileName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [showEasterEgg, setShowEasterEgg] = useState(false);
+  const [focusedTransactionIds, setFocusedTransactionIds] = useState([]);
 
   // Editing Rule State
   const [editingCategoryKey, setEditingCategoryKey] = useState('hotel');
@@ -136,6 +141,7 @@ function App() {
       setReportTitle(reportNaming.title);
       setDownloadFileName(reportNaming.fileName);
       setSelectedCategory('all');
+      setFocusedTransactionIds([]);
     } catch (err) {
       console.error(err);
       setErrorMsg(err.message || '엑셀 파일을 읽는 과정에서 오류가 발생했습니다.');
@@ -145,7 +151,7 @@ function App() {
   // Export current transactions to excel
   const handleExport = async (event) => {
     event?.preventDefault();
-    if (transactions.length === 0) return;
+    if (transactions.length === 0 || !validationReport.canExport) return;
     
     try {
       const fallbackNaming = createReportNaming(transactions, fileName);
@@ -313,6 +319,20 @@ function App() {
     )));
   };
 
+  const handleSelectCategory = (categoryId) => {
+    setSelectedCategory(categoryId);
+    setFocusedTransactionIds([]);
+  };
+
+  const handleValidationNavigation = (transactionIds) => {
+    if (transactionIds.length === 0) return;
+    setSelectedCategory('all');
+    setSearchTerm('');
+    setFocusedTransactionIds(transactionIds);
+    setIsExportModalOpen(false);
+    requestAnimationFrame(() => document.getElementById('transaction-list')?.scrollIntoView({ behavior: 'smooth' }));
+  };
+
   // Reset to default rules
   const handleResetRules = () => {
     if (window.confirm('분류 규칙을 초기 상태로 되돌리시겠습니까?')) {
@@ -330,6 +350,7 @@ function App() {
     setDownloadFileName('');
     setIsExportModalOpen(false);
     setSearchTerm('');
+    setFocusedTransactionIds([]);
     setErrorMsg('');
   };
 
@@ -341,6 +362,14 @@ function App() {
   const reportCategoryView = useMemo(
     () => calculateReportCategoryView(transactions, reportCategories),
     [transactions, reportCategories]
+  );
+  const validationReport = useMemo(
+    () => createSettlementValidationReport(transactions, reportCategories),
+    [transactions, reportCategories]
+  );
+  const focusedTransactionIdSet = useMemo(
+    () => new Set(focusedTransactionIds),
+    [focusedTransactionIds]
   );
   const categorizedTransactions = transactions.map((tx, index) => ({
     ...tx,
@@ -357,10 +386,11 @@ function App() {
   // Filtered transactions for the main table list
   const filteredTransactions = categorizedTransactions.filter(tx => {
     const matchesCategory = selectedCategory === 'all' || tx.category === selectedCategory;
+    const matchesValidation = focusedTransactionIds.length === 0 || focusedTransactionIdSet.has(tx.id);
     const matchesSearch = tx.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           String(tx.withdrawal).includes(searchTerm) ||
                           String(tx.deposit).includes(searchTerm);
-    return matchesCategory && matchesSearch;
+    return matchesCategory && matchesValidation && matchesSearch;
   });
 
   // Calculate percentages for statistics chart
@@ -504,7 +534,7 @@ function App() {
               <div className="category-list">
                 <div 
                   className={`category-item ${selectedCategory === 'all' ? 'active' : ''}`}
-                  onClick={() => setSelectedCategory('all')}
+                  onClick={() => handleSelectCategory('all')}
                 >
                   <span style={{ fontWeight: 500 }}>전체보기</span>
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{transactions.length}건</span>
@@ -519,7 +549,7 @@ function App() {
                     <div
                       key={stat.key}
                       className={`category-item ${selectedCategory === stat.key ? 'active' : ''}`}
-                      onClick={() => setSelectedCategory(stat.key)}
+                      onClick={() => handleSelectCategory(stat.key)}
                     >
                       <span className={`category-badge ${stat.colorClass}`}>{stat.name}</span>
                       <span className="category-amount">₩{stat.amount.toLocaleString()}</span>
@@ -536,7 +566,7 @@ function App() {
                     <div
                       key={stat.key}
                       className={`category-item ${selectedCategory === stat.key ? 'active' : ''}`}
-                      onClick={() => setSelectedCategory(stat.key)}
+                      onClick={() => handleSelectCategory(stat.key)}
                     >
                       <span className={`category-badge ${stat.colorClass}`}>{stat.name}</span>
                       <span className="category-amount">
@@ -575,7 +605,7 @@ function App() {
             </div>
 
             {/* Right Column: Transactions Data List */}
-            <div className="glass-panel table-panel">
+            <div className="glass-panel table-panel" id="transaction-list">
               <div className="table-header-row">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <span className="table-title">
@@ -595,7 +625,10 @@ function App() {
                     type="text" 
                     placeholder="거래처/금액 검색..." 
                     value={searchTerm} 
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setFocusedTransactionIds([]);
+                    }}
                     style={{ width: '100%', padding: '0.45rem 1rem 0.45rem 2rem', fontSize: '0.85rem' }}
                   />
                   {searchTerm && (
@@ -607,6 +640,15 @@ function App() {
                   )}
                 </div>
               </div>
+
+              {focusedTransactionIds.length > 0 && (
+                <div className="validation-filter-banner">
+                  <span>검증 경고에 해당하는 거래 {filteredTransactions.length}건만 표시 중입니다.</span>
+                  <button type="button" className="secondary" onClick={() => setFocusedTransactionIds([])}>
+                    전체 거래 보기
+                  </button>
+                </div>
+              )}
 
               {/* Transactions Table */}
               <div className="table-container">
@@ -694,8 +736,8 @@ function App() {
           >
             <div className="export-modal-header">
               <div>
-                <h3 id="export-modal-title">내보내기 정보</h3>
-                <p>보고서 제목과 파일명을 확인한 뒤 다운로드하세요.</p>
+                <h3 id="export-modal-title">내보내기 전 정산 검증</h3>
+                <p>검증 결과와 보고서 정보를 확인한 뒤 다운로드하세요.</p>
               </div>
               <button
                 type="button"
@@ -711,6 +753,43 @@ function App() {
               <span>원본 파일</span>
               <strong>{fileName}</strong>
             </div>
+
+            <section className="validation-report" aria-label="정산 검증 결과">
+              <div className={`validation-item ${validationReport.errors.length > 0 ? 'error' : 'success'}`}>
+                {validationReport.errors.length > 0 ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
+                <div>
+                  <strong>대시보드와 보고서 합계</strong>
+                  <span>
+                    {validationReport.errors[0]?.description
+                      || `수입 ₩${validationReport.totals.reportDeposit.toLocaleString()} · 지출 ₩${validationReport.totals.reportWithdrawal.toLocaleString()}`}
+                  </span>
+                </div>
+                <b>{validationReport.errors.length > 0 ? '오류' : '일치'}</b>
+              </div>
+
+              {validationReport.warnings.map(item => (
+                <div className="validation-item warning" key={item.id}>
+                  <AlertTriangle size={20} />
+                  <div>
+                    <strong>{item.title}</strong>
+                    <span>{item.description}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary validation-navigation"
+                    onClick={() => handleValidationNavigation(item.transactionIds)}
+                  >
+                    거래 보기 <ArrowRight size={14} />
+                  </button>
+                </div>
+              ))}
+
+              {validationReport.warnings.length === 0 && validationReport.errors.length === 0 && (
+                <div className="validation-empty">
+                  <CheckCircle2 size={18} /> 미분류·중복 의심·잔액 흐름 이상이 없습니다.
+                </div>
+              )}
+            </section>
 
             <div className="form-group">
               <label htmlFor="report-title">보고서 제목</label>
@@ -737,8 +816,8 @@ function App() {
               <button type="button" className="secondary" onClick={() => setIsExportModalOpen(false)}>
                 취소
               </button>
-              <button type="submit">
-                <Download size={16} /> 다운로드
+              <button type="submit" disabled={!validationReport.canExport}>
+                <Download size={16} /> {validationReport.canExport ? '검증 완료 · 다운로드' : '오류 수정 필요'}
               </button>
             </div>
           </form>
