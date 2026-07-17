@@ -29,7 +29,7 @@
   --surface-elevated: #171a24;
   --surface-subtle: #1d202b;
   --surface-hover: #242936;
-  --focus-ring: rgba(96, 165, 250, 0.42);
+  --focus-ring: #60a5fa;
   --chart-grid: #303542;
   --chart-1: #d0ad6c;
   --chart-2: #6fa3a4;
@@ -1333,7 +1333,7 @@ input:focus, select:focus, textarea:focus {
   --surface-elevated: #fffdf9;
   --surface-subtle: #f8f4ed;
   --surface-hover: #f3ece1;
-  --focus-ring: rgba(38, 62, 89, 0.25);
+  --focus-ring: #263e59;
   --chart-grid: #e5ddd1;
   --chart-1: #8a6f48;
   --chart-2: #668b8c;

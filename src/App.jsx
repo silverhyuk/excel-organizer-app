@@ -748,6 +748,7 @@ function App() {
                   type="button"
                   className={`category-item ${selectedCategory === 'all' ? 'active' : ''}`}
                   onClick={() => handleSelectCategory('all')}
+                  aria-pressed={selectedCategory === 'all'}
                 >
                   <span className="category-label">전체보기</span>
                   <span className="category-count">{transactions.length}건</span>
@@ -764,6 +765,7 @@ function App() {
                       key={stat.key}
                       className={`category-item ${selectedCategory === stat.key ? 'active' : ''}`}
                       onClick={() => handleSelectCategory(stat.key)}
+                      aria-pressed={selectedCategory === stat.key}
                     >
                       <span className={`category-badge ${stat.colorClass}`}>{stat.name}</span>
                       <span className="category-amount">₩{stat.amount.toLocaleString()}</span>
@@ -782,6 +784,7 @@ function App() {
                       key={stat.key}
                       className={`category-item ${selectedCategory === stat.key ? 'active' : ''}`}
                       onClick={() => handleSelectCategory(stat.key)}
+                      aria-pressed={selectedCategory === stat.key}
                     >
                       <span className={`category-badge ${stat.colorClass}`}>{stat.name}</span>
                       <span className="category-amount">
