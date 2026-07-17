@@ -60,7 +60,7 @@ function App() {
     } catch {
       // Fall back to the operating system preference when storage is unavailable.
     }
-    return resolveTheme(savedTheme, window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+    return resolveTheme(savedTheme, window.matchMedia?.('(prefers-color-scheme: dark)')?.matches);
   });
   const [transactions, setTransactions] = useState([]);
   const [rules, setRules] = useState(getRules());
@@ -109,12 +109,17 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
+  }, [theme]);
+
+  const handleThemeToggle = () => {
+    const nextTheme = getNextTheme(theme);
+    setTheme(nextTheme);
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
+      localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
     } catch {
       // The active theme still applies for the current session.
     }
-  }, [theme]);
+  };
 
   useEffect(() => {
     let active = true;
@@ -588,7 +593,7 @@ function App() {
           <button
             type="button"
             className="secondary icon-button theme-toggle"
-            onClick={() => setTheme(current => getNextTheme(current))}
+            onClick={handleThemeToggle}
             aria-label={theme === THEMES.DARK ? '라이트 모드로 전환' : '다크 모드로 전환'}
             title={theme === THEMES.DARK ? '라이트 모드' : '다크 모드'}
           >

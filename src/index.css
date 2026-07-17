@@ -1802,7 +1802,8 @@ input:focus, select:focus {
 }
 
 .table-search-clear,
-.table-search-clear:hover {
+.table-search-clear:hover,
+.table-search-clear:active {
   position: absolute;
   top: 50%;
   right: 6px;
@@ -1985,7 +1986,8 @@ textarea:focus-visible {
 :root[data-theme='dark'] .review-status-close,
 :root[data-theme='dark'] .review-status-close:hover,
 :root[data-theme='dark'] .table-search-clear,
-:root[data-theme='dark'] .table-search-clear:hover {
+:root[data-theme='dark'] .table-search-clear:hover,
+:root[data-theme='dark'] .table-search-clear:active {
   border: 0;
   background: transparent;
   box-shadow: none;

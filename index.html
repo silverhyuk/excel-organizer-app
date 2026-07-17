@@ -14,9 +14,10 @@
         } catch {
           // Continue with the operating system preference when storage is unavailable.
         }
+        const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ?? false;
         const theme = savedTheme === 'light' || savedTheme === 'dark'
           ? savedTheme
-          : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          : prefersDark ? 'dark' : 'light';
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme;
       })();
