@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Upload, 
   Download, 
@@ -19,18 +19,42 @@ import {
 } from 'lucide-react';
 import { calculateReportCategoryView, parseExcelFile, exportToExcel } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
-import { createReportCategory, cloneDefaultReportCategories, loadReportCategories, saveReportCategories } from './utils/reportConfig';
+import {
+  addLearnedVendorRule,
+  createReportCategory,
+  createReportDetail,
+  cloneDefaultReportCategories,
+  loadReportCategories,
+  saveReportCategories
+} from './utils/reportConfig';
 import { createReportNaming, normalizeDownloadFileName } from './utils/reportNaming';
 import { sumTransactionAmounts } from './utils/transactionTotals';
 import { createSettlementValidationReport } from './utils/settlementValidation';
+import { getDetailPatterns, MATCH_TYPE_OPTIONS } from './utils/vendorMatcher';
 import BaldDodgeGame from './components/BaldDodgeGame';
 import FinancialCharts from './components/FinancialCharts';
 import reportTemplateUrl from '../result.xlsx?url';
+
+function VendorPatternsInput({ detail, onChange }) {
+  const value = detail.patternText ?? getDetailPatterns(detail).join('\n');
+  return (
+    <textarea
+      value={value}
+      aria-label="거래처 키워드와 별칭"
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={detail.matchType === 'salary' ? '급여 자동 판별' : '한국전력공사\n한전\nKEPCO'}
+      disabled={detail.matchType === 'salary'}
+    />
+  );
+}
 
 function App() {
   const [transactions, setTransactions] = useState([]);
   const [rules, setRules] = useState(getRules());
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [reviewMode, setReviewMode] = useState('all');
+  const [learningTransactionIds, setLearningTransactionIds] = useState(() => new Set());
+  const [reviewStatus, setReviewStatus] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
@@ -39,6 +63,7 @@ function App() {
   const [editingReportCategoryId, setEditingReportCategoryId] = useState('utilities');
   const [newDetailLabel, setNewDetailLabel] = useState('');
   const [newDetailKeyword, setNewDetailKeyword] = useState('');
+  const [newDetailMatchType, setNewDetailMatchType] = useState('contains');
   const [reportConfigStatus, setReportConfigStatus] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState('');
@@ -48,6 +73,8 @@ function App() {
   const [errorMsg, setErrorMsg] = useState('');
   const [showEasterEgg, setShowEasterEgg] = useState(false);
   const [focusedTransactionIds, setFocusedTransactionIds] = useState([]);
+  const reportCategoriesRef = useRef(reportCategories);
+  const learnSaveQueueRef = useRef(Promise.resolve());
 
   // Editing Rule State
   const [editingCategoryKey, setEditingCategoryKey] = useState('hotel');
@@ -78,6 +105,16 @@ function App() {
     });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (reviewStatus?.type !== 'success') return undefined;
+    const timeoutId = window.setTimeout(() => setReviewStatus(null), 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [reviewStatus]);
+
+  useEffect(() => {
+    reportCategoriesRef.current = reportCategories;
+  }, [reportCategories]);
 
   // Re-classify all transactions when rules change or new transactions load
   useEffect(() => {
@@ -143,6 +180,9 @@ function App() {
       setReportTitle(reportNaming.title);
       setDownloadFileName(reportNaming.fileName);
       setSelectedCategory('all');
+      setReviewMode('all');
+      setLearningTransactionIds(new Set());
+      setReviewStatus(null);
       setFocusedTransactionIds([]);
     } catch (err) {
       console.error(err);
@@ -193,6 +233,21 @@ function App() {
     )));
   };
 
+  const updateReportDetailPatterns = (detailId, value) => {
+    const [keyword = '', ...aliases] = value.split('\n').map(pattern => pattern.trim()).filter(Boolean);
+    setReportConfigStatus('');
+    setReportCategories(categories => categories.map(category => (
+      category.id === editingReportCategoryId
+        ? {
+            ...category,
+            details: category.details.map(detail => (
+              detail.id === detailId ? { ...detail, keyword, aliases, patternText: value } : detail
+            ))
+          }
+        : category
+    )));
+  };
+
   const updateReportCategoryLabel = (value) => {
     setReportConfigStatus('');
     setReportCategories(categories => categories.map(category => (
@@ -221,13 +276,24 @@ function App() {
   const handleAddReportDetail = () => {
     const category = reportCategories.find(item => item.id === editingReportCategoryId);
     if (!category || !newDetailLabel.trim() || !newDetailKeyword.trim()) return;
+    const [keyword, ...aliases] = newDetailKeyword.split('\n').map(pattern => pattern.trim()).filter(Boolean);
+    if (!keyword) return;
     setReportCategories(categories => categories.map(item => (
       item.id === editingReportCategoryId
-        ? { ...item, details: [...item.details, { id: crypto.randomUUID(), label: newDetailLabel.trim(), keyword: newDetailKeyword.trim() }] }
+        ? {
+            ...item,
+            details: [...item.details, createReportDetail({
+              label: newDetailLabel.trim(),
+              keyword,
+              aliases,
+              matchType: newDetailMatchType
+            })]
+          }
         : item
     )));
     setNewDetailLabel('');
     setNewDetailKeyword('');
+    setNewDetailMatchType('contains');
     setReportConfigStatus('');
   };
 
@@ -237,6 +303,7 @@ function App() {
     setEditingReportCategoryId(category.id);
     setNewDetailLabel('');
     setNewDetailKeyword('');
+    setNewDetailMatchType('contains');
     setReportConfigStatus('');
   };
 
@@ -250,6 +317,7 @@ function App() {
     if (selectedCategory === editingReportCategoryId) setSelectedCategory('all');
     setNewDetailLabel('');
     setNewDetailKeyword('');
+    setNewDetailMatchType('contains');
     setReportConfigStatus('');
   };
 
@@ -261,7 +329,7 @@ function App() {
       return true;
     } catch (error) {
       console.error(error);
-      setReportConfigStatus('저장 실패');
+      setReportConfigStatus(error.message || '저장 실패');
       return false;
     }
   };
@@ -272,6 +340,7 @@ function App() {
     setEditingReportCategoryId('utilities');
     setNewDetailLabel('');
     setNewDetailKeyword('');
+    setNewDetailMatchType('contains');
     setReportConfigStatus('기본값으로 복원됨 · 저장 필요');
   };
 
@@ -315,20 +384,66 @@ function App() {
   };
 
   // Manually selected categories take precedence over automatic report rules.
-  const handleManualCategoryChange = (txId, categoryId) => {
+  const handleManualCategoryChange = async (txId, categoryId) => {
+    const transaction = transactions.find(tx => tx.id === txId);
+    const shouldLearn = learningTransactionIds.has(txId) && categoryId !== 'misc';
+    setReviewStatus(null);
     setTransactions(current => current.map(tx => (
       tx.id === txId ? { ...tx, categoryOverride: categoryId } : tx
     )));
+    if (!shouldLearn || !transaction) return;
+
+    try {
+      const learnAndSave = async () => {
+        const learned = addLearnedVendorRule(reportCategoriesRef.current, categoryId, transaction.description);
+        if (!learned.added) return { added: false, categories: reportCategoriesRef.current };
+        const saved = await saveReportCategories(learned.categories);
+        reportCategoriesRef.current = saved;
+        setReportCategories(saved);
+        return { added: true, categories: saved };
+      };
+      const queuedSave = learnSaveQueueRef.current.then(learnAndSave, learnAndSave);
+      learnSaveQueueRef.current = queuedSave.catch(() => undefined);
+      const result = await queuedSave;
+      if (!result.added) {
+        setReviewStatus({ type: 'info', message: '이미 같은 거래처에 적용되는 규칙이 있습니다.' });
+        return;
+      }
+      setTransactions(current => current.map(tx => (
+        tx.id === txId ? { ...tx, categoryOverride: undefined } : tx
+      )));
+      const categoryLabel = result.categories.find(category => category.id === categoryId)?.label || '선택한 카테고리';
+      setReviewStatus({
+        type: 'success',
+        message: `'${transaction.description}' 거래처를 ${categoryLabel} 규칙으로 저장했습니다.`
+      });
+      setLearningTransactionIds(current => {
+        const next = new Set(current);
+        next.delete(txId);
+        return next;
+      });
+    } catch (error) {
+      console.error(error);
+      setReviewStatus({ type: 'error', message: error.message || '거래처 규칙을 저장하지 못했습니다.' });
+    }
   };
 
   const handleSelectCategory = (categoryId) => {
     setSelectedCategory(categoryId);
+    setReviewMode('all');
+    setFocusedTransactionIds([]);
+  };
+
+  const handleSelectReviewMode = (mode) => {
+    setSelectedCategory('all');
+    setReviewMode(mode);
     setFocusedTransactionIds([]);
   };
 
   const handleValidationNavigation = (transactionIds) => {
     if (transactionIds.length === 0) return;
     setSelectedCategory('all');
+    setReviewMode('all');
     setSearchTerm('');
     setFocusedTransactionIds(transactionIds);
     setIsExportModalOpen(false);
@@ -355,6 +470,9 @@ function App() {
     setSearchTerm('');
     setFocusedTransactionIds([]);
     setErrorMsg('');
+    setReviewMode('all');
+    setLearningTransactionIds(new Set());
+    setReviewStatus(null);
   };
 
   // Calculations for Stats
@@ -374,10 +492,24 @@ function App() {
     () => new Set(focusedTransactionIds),
     [focusedTransactionIds]
   );
-  const categorizedTransactions = transactions.map((tx, index) => ({
-    ...tx,
-    category: reportCategoryView.assignments[index]
-  }));
+  const categorizedTransactions = useMemo(() => {
+    const conflictByIndex = new Map(reportCategoryView.conflicts.map(conflict => [conflict.transactionIndex, conflict]));
+    const unclassifiedIndexes = new Set(reportCategoryView.unclassifiedIndexes);
+    return transactions.map((tx, index) => ({
+      ...tx,
+      category: reportCategoryView.assignments[index],
+      isUnclassified: unclassifiedIndexes.has(index),
+      ruleConflict: conflictByIndex.get(index) || null
+    }));
+  }, [transactions, reportCategoryView]);
+  const unclassifiedTransactions = useMemo(
+    () => categorizedTransactions.filter(tx => tx.isUnclassified),
+    [categorizedTransactions]
+  );
+  const unclassifiedTotal = useMemo(
+    () => unclassifiedTransactions.reduce((sum, tx) => sum + tx.withdrawal, 0),
+    [unclassifiedTransactions]
+  );
   const selectedTransactions = categorizedTransactions.filter(
     tx => selectedCategory === 'all' || tx.category === selectedCategory
   );
@@ -389,11 +521,14 @@ function App() {
   // Filtered transactions for the main table list
   const filteredTransactions = categorizedTransactions.filter(tx => {
     const matchesCategory = selectedCategory === 'all' || tx.category === selectedCategory;
+    const matchesReview = reviewMode === 'unclassified'
+      ? tx.isUnclassified
+      : reviewMode === 'conflicts' ? Boolean(tx.ruleConflict) : true;
     const matchesValidation = focusedTransactionIds.length === 0 || focusedTransactionIdSet.has(tx.id);
     const matchesSearch = tx.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           String(tx.withdrawal).includes(searchTerm) ||
                           String(tx.deposit).includes(searchTerm);
-    return matchesCategory && matchesValidation && matchesSearch;
+    return matchesCategory && matchesReview && matchesValidation && matchesSearch;
   });
 
   // Calculate percentages for statistics chart
@@ -412,6 +547,11 @@ function App() {
       percentage: pct
     };
   }).sort((a, b) => b.amount - a.amount); // Sort by highest expenditure first
+
+  const tableTitle = reviewMode === 'unclassified'
+    ? '미분류 거래 검토'
+    : reviewMode === 'conflicts' ? '규칙 충돌 검토'
+      : selectedCategory === 'all' ? '전체 내역' : categoryStats.find(stat => stat.key === selectedCategory)?.name;
 
   return (
     <div className="app-container">
@@ -535,6 +675,26 @@ function App() {
               </div>
 
               <div className="category-list">
+                <div className="review-queue">
+                  <div className="review-queue-title">
+                    <strong>검토 필요</strong>
+                    <span>{unclassifiedTransactions.length + reportCategoryView.conflicts.length}건</span>
+                  </div>
+                  <button
+                    className={`review-queue-button ${reviewMode === 'unclassified' ? 'active' : ''}`}
+                    onClick={() => handleSelectReviewMode('unclassified')}
+                  >
+                    <span>미분류 거래 {unclassifiedTransactions.length}건</span>
+                    <strong>₩{unclassifiedTotal.toLocaleString()}</strong>
+                  </button>
+                  <button
+                    className={`review-queue-button secondary ${reviewMode === 'conflicts' ? 'active' : ''}`}
+                    onClick={() => handleSelectReviewMode('conflicts')}
+                  >
+                    <span>규칙 충돌</span>
+                    <strong>{reportCategoryView.conflicts.length}건</strong>
+                  </button>
+                </div>
                 <div 
                   className={`category-item ${selectedCategory === 'all' ? 'active' : ''}`}
                   onClick={() => handleSelectCategory('all')}
@@ -612,9 +772,9 @@ function App() {
               <div className="table-header-row">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <span className="table-title">
-                    {selectedCategory === 'all' ? '전체 내역' : categoryStats.find(stat => stat.key === selectedCategory)?.name} ({filteredTransactions.length}건)
+                    {tableTitle} ({filteredTransactions.length}건)
                   </span>
-                  {selectedCategory !== 'all' && (
+                  {selectedCategory !== 'all' && reviewMode === 'all' && (
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                       선택된 {selectedIncomeOnly ? '입금' : '지출'} 합계: <strong style={{ color: 'var(--text-primary)' }}>₩{selectedTotal.toLocaleString()}</strong>
                     </span>
@@ -643,6 +803,15 @@ function App() {
                   )}
                 </div>
               </div>
+
+              {reviewStatus && (
+                <div className={`review-status ${reviewStatus.type}`} role="status">
+                  <span>{reviewStatus.message}</span>
+                  <button className="review-status-close" onClick={() => setReviewStatus(null)} aria-label="안내 닫기">
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
 
               {focusedTransactionIds.length > 0 && (
                 <div className="validation-filter-banner">
@@ -678,21 +847,43 @@ function App() {
                           <td style={{ whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{tx.date}</td>
                           <td>
                             <div style={{ fontWeight: 500 }}>{tx.description}</div>
+                            {tx.isUnclassified && <span className="review-badge unclassified">미분류</span>}
+                            {tx.ruleConflict && (
+                              <span className="review-badge conflict" title={tx.ruleConflict.matches.map(match => `${match.categoryLabel} > ${match.detailLabel}`).join('\n')}>
+                                규칙 {tx.ruleConflict.matches.length}개 일치 · 위쪽 규칙 우선
+                              </span>
+                            )}
                           </td>
                           <td>
                             {tx.withdrawal > 0 ? (
-                              <select
-                                value={tx.category}
-                                onChange={(event) => handleManualCategoryChange(tx.id, event.target.value)}
-                                aria-label={`${tx.description} 카테고리`}
-                                style={{ minWidth: '105px', padding: '0.3rem 0.5rem', fontSize: '0.8rem', fontWeight: 500 }}
-                              >
-                                {reportCategories.filter(category => category.enabled !== false).map(category => (
-                                  <option key={category.id} value={category.id}>
-                                    {category.label}
-                                  </option>
-                                ))}
-                              </select>
+                              <div className="transaction-category-editor">
+                                <select
+                                  value={tx.category}
+                                  onChange={(event) => handleManualCategoryChange(tx.id, event.target.value)}
+                                  aria-label={`${tx.description} 카테고리`}
+                                >
+                                  {reportCategories.filter(category => category.enabled !== false).map(category => (
+                                    <option key={category.id} value={category.id}>
+                                      {category.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                {tx.isUnclassified && (
+                                  <label className="learn-vendor-option">
+                                    <input
+                                      type="checkbox"
+                                      checked={learningTransactionIds.has(tx.id)}
+                                      onChange={(event) => setLearningTransactionIds(current => {
+                                        const next = new Set(current);
+                                        if (event.target.checked) next.add(tx.id);
+                                        else next.delete(tx.id);
+                                        return next;
+                                      })}
+                                    />
+                                    같은 거래처 기억
+                                  </label>
+                                )}
+                              </div>
                             ) : (
                               <span className={`category-badge ${tx.category}`}>
                                 {categoryStats.find(stat => stat.key === tx.category)?.name}
@@ -907,7 +1098,7 @@ function App() {
       {/* Major Category Manager Modal */}
       {isSummaryModalOpen && (
         <div className="modal-backdrop" onClick={() => setIsSummaryModalOpen(false)}>
-          <div className="modal-content glass-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content report-settings-modal glass-panel" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
               <div>
                 <h3 style={{ fontSize: '1.25rem', fontWeight: 600 }}>큰 카테고리 설정</h3>
@@ -929,6 +1120,7 @@ function App() {
                     setEditingReportCategoryId(category.id);
                     setNewDetailLabel('');
                     setNewDetailKeyword('');
+                    setNewDetailMatchType('contains');
                   }}
                 >
                   {category.label}
@@ -974,7 +1166,13 @@ function App() {
                   </label>
                   <div className="report-detail-header">
                     <strong>작은 카테고리 항목</strong>
-                    <span>{category.details.length}개 · 제한 없음</span>
+                    <span>{category.details.length}개 · 앞쪽 항목 우선</span>
+                  </div>
+                  <div className="report-detail-columns" aria-hidden="true">
+                    <span>항목명</span>
+                    <span>매칭</span>
+                    <span>키워드·별칭 (한 줄에 하나)</span>
+                    <span />
                   </div>
                   <div className="report-detail-list">
                     {category.details.map(detail => (
@@ -985,12 +1183,19 @@ function App() {
                           onChange={(event) => updateReportDetail(detail.id, 'label', event.target.value)}
                           placeholder="항목명"
                         />
-                        <input
-                          value={detail.keyword}
-                          aria-label="거래처 키워드"
-                          onChange={(event) => updateReportDetail(detail.id, 'keyword', event.target.value)}
-                          placeholder={detail.matchType === 'salary' ? '급여 자동 판별' : '거래처 키워드'}
+                        <select
+                          value={detail.matchType || 'contains'}
+                          aria-label="거래처 매칭 방식"
+                          onChange={(event) => updateReportDetail(detail.id, 'matchType', event.target.value)}
                           disabled={detail.matchType === 'salary'}
+                        >
+                          {detail.matchType === 'salary'
+                            ? <option value="salary">급여 자동 판별</option>
+                            : MATCH_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                        <VendorPatternsInput
+                          detail={detail}
+                          onChange={(value) => updateReportDetailPatterns(detail.id, value)}
                         />
                         <button className="secondary danger" onClick={() => handleRemoveReportDetail(detail.id)} aria-label={`${detail.label} 삭제`}>
                           <Trash2 size={15} />
@@ -1000,8 +1205,11 @@ function App() {
                   </div>
                   <div className="report-detail-add">
                     <input value={newDetailLabel} onChange={(event) => setNewDetailLabel(event.target.value)} placeholder="새 항목명" />
-                    <input value={newDetailKeyword} onChange={(event) => setNewDetailKeyword(event.target.value)} placeholder="거래처 키워드" />
-                    <button onClick={handleAddReportDetail} disabled={!newDetailLabel.trim() || !newDetailKeyword.trim()}>
+                    <select value={newDetailMatchType} onChange={(event) => setNewDetailMatchType(event.target.value)} aria-label="새 항목 매칭 방식">
+                      {MATCH_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                    <textarea value={newDetailKeyword} onChange={(event) => setNewDetailKeyword(event.target.value)} placeholder={'거래처 키워드\n별칭1\n별칭2'} />
+                    <button onClick={handleAddReportDetail} disabled={!newDetailLabel.trim() || !newDetailKeyword.split('\n').some(pattern => pattern.trim())}>
                       <Plus size={15} /> 추가
                     </button>
                   </div>
