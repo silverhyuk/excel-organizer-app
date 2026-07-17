@@ -45,8 +45,8 @@ export function normalizeDownloadFileName(fileName) {
   return `${baseName}.xlsx`;
 }
 
-export function createReportNaming(transactions, sourceFileName) {
-  const businessName = inferBusinessName(sourceFileName);
+export function createReportNaming(transactions, sourceFileName, accountHolderName = '') {
+  const businessName = String(accountHolderName || '').normalize('NFC').trim() || inferBusinessName(sourceFileName);
   const settlementPeriod = detectSettlementPeriod(transactions);
   return {
     title: `${businessName} ${settlementPeriod} 월 정산`,

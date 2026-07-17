@@ -13,11 +13,11 @@ const COLUMN_MAPPINGS = {
 };
 
 /**
- * Parse an Excel file arrayBuffer and extract bank transaction list
+ * Parse an Excel file arrayBuffer and extract transactions and account metadata
  * @param {ArrayBuffer} arrayBuffer 
- * @returns {Promise<Array>} Standardized transactions list
+ * @returns {Promise<{ transactions: Array, accountHolderName: string }>}
  */
-export function parseExcelTransactions(arrayBuffer) {
+export function parseExcelFile(arrayBuffer) {
   return new Promise((resolve, reject) => {
     try {
       const data = new Uint8Array(arrayBuffer);
@@ -95,11 +95,39 @@ export function parseExcelTransactions(arrayBuffer) {
       // Sort by date ascending (oldest first)
       transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
       
-      resolve(transactions);
+      resolve({
+        transactions,
+        accountHolderName: findAccountHolderName(rawRows.slice(0, headerRowIndex))
+      });
     } catch (error) {
       reject(error);
     }
   });
+}
+
+export async function parseExcelTransactions(arrayBuffer) {
+  const { transactions } = await parseExcelFile(arrayBuffer);
+  return transactions;
+}
+
+function findAccountHolderName(rows) {
+  for (const row of rows) {
+    for (let index = 0; index < row.length; index++) {
+      const cell = String(row[index] ?? '').normalize('NFC').trim();
+      const inlineMatch = cell.match(/^(?:예금주명|예금주|계좌명의인)(?:\s*[:：]\s*|\s+)(.+)$/);
+      const inlineValue = inlineMatch?.[1].replace(/^[:：]\s*/, '').trim();
+      if (inlineValue) return inlineValue;
+
+      const label = cell.replace(/\s*[:：]\s*$/, '');
+      if (/^(?:예금주명|예금주|계좌명의인)$/.test(label)) {
+        const value = row.slice(index + 1)
+          .map(candidate => String(candidate ?? '').normalize('NFC').trim())
+          .find(Boolean);
+        if (value) return value;
+      }
+    }
+  }
+  return '';
 }
 
 /**

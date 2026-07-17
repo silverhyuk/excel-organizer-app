@@ -4,7 +4,7 @@ import test from 'node:test';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 
-import { calculateReportCategoryView, exportToExcel, parseExcelTransactions } from './excelParser.js';
+import { calculateReportCategoryView, exportToExcel, parseExcelFile, parseExcelTransactions } from './excelParser.js';
 import { cloneDefaultReportCategories } from './reportConfig.js';
 
 function findRowByValue(sheet, column, value) {
@@ -27,6 +27,38 @@ test('keeps the exact withdrawal column when an input/output bank column follows
   assert.equal(transactions.length, 2);
   assert.equal(transactions.reduce((sum, tx) => sum + tx.withdrawal, 0), 105250);
   assert.equal(transactions.reduce((sum, tx) => sum + tx.deposit, 0), 250000);
+});
+
+test('extracts an account holder name from rows above the transaction header', async () => {
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['계좌 정보'],
+    ['예금주명 :', '(주)해오름호텔'],
+    ['일자', '거래내용', '입금', '출금', '잔액'],
+    ['2026-06-01', '예약 매출', 250000, '', 1250000]
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, '거래내역');
+  const input = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+  const parsed = await parseExcelFile(input);
+
+  assert.equal(parsed.accountHolderName, '(주)해오름호텔');
+  assert.equal(parsed.transactions.length, 1);
+});
+
+test('extracts an inline account holder label', async () => {
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['예금주 : 홍길동'],
+    ['일자', '거래내용', '입금', '출금'],
+    ['2026-06-01', '예약 매출', 250000, '']
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, '거래내역');
+  const input = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+  const parsed = await parseExcelFile(input);
+
+  assert.equal(parsed.accountHolderName, '홍길동');
 });
 
 test('rejects unknown headers instead of guessing an input and output column order', async () => {
