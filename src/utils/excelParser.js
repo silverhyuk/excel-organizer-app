@@ -112,10 +112,11 @@ export async function parseExcelTransactions(arrayBuffer) {
 
 function findAccountHolderName(rows) {
   for (const row of rows) {
+    if (!Array.isArray(row)) continue;
     for (let index = 0; index < row.length; index++) {
       const cell = String(row[index] ?? '').normalize('NFC').trim();
-      const inlineMatch = cell.match(/^(?:예금주명|예금주|계좌명의인)(?:\s*[:：]\s*|\s+)(.+)$/);
-      const inlineValue = inlineMatch?.[1].replace(/^[:：]\s*/, '').trim();
+      const inlineMatch = cell.match(/^(?:예금주명|예금주|계좌명의인)(?:\s*[:：]+\s*|\s+)([^:：].*)$/);
+      const inlineValue = inlineMatch?.[1].trim();
       if (inlineValue) return inlineValue;
 
       const label = cell.replace(/\s*[:：]\s*$/, '');

@@ -32,6 +32,7 @@ test('keeps the exact withdrawal column when an input/output bank column follows
 test('extracts an account holder name from rows above the transaction header', async () => {
   const worksheet = XLSX.utils.aoa_to_sheet([
     ['계좌 정보'],
+    [],
     ['예금주명 :', '(주)해오름호텔'],
     ['일자', '거래내용', '입금', '출금', '잔액'],
     ['2026-06-01', '예약 매출', 250000, '', 1250000]
@@ -48,7 +49,7 @@ test('extracts an account holder name from rows above the transaction header', a
 
 test('extracts an inline account holder label', async () => {
   const worksheet = XLSX.utils.aoa_to_sheet([
-    ['예금주 : 홍길동'],
+    ['예금주 :: 홍길동'],
     ['일자', '거래내용', '입금', '출금'],
     ['2026-06-01', '예약 매출', 250000, '']
   ]);
