@@ -4,7 +4,7 @@ import test from 'node:test';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 
-import { calculateReportCategoryView, exportToExcel, parseExcelTransactions } from './excelParser.js';
+import { calculateReportCategoryView, exportToExcel, parseExcelFile, parseExcelTransactions } from './excelParser.js';
 import { cloneDefaultReportCategories } from './reportConfig.js';
 
 function findRowByValue(sheet, column, value) {
@@ -27,6 +27,54 @@ test('keeps the exact withdrawal column when an input/output bank column follows
   assert.equal(transactions.length, 2);
   assert.equal(transactions.reduce((sum, tx) => sum + tx.withdrawal, 0), 105250);
   assert.equal(transactions.reduce((sum, tx) => sum + tx.deposit, 0), 250000);
+  assert.equal(transactions.every(tx => tx.hasBalance), true);
+});
+
+test('marks a missing balance cell as unavailable even when the balance column exists', async () => {
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['일자', '거래내용', '입금', '출금', '잔액'],
+    ['2026-06-01', '예약 매출', 250000, '']
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, '거래내역');
+  const input = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+  const [transaction] = await parseExcelTransactions(input);
+
+  assert.equal(transaction.hasBalance, false);
+});
+
+test('extracts an account holder name from rows above the transaction header', async () => {
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['계좌 정보'],
+    [],
+    ['예금주명 :', '(주)해오름호텔'],
+    ['일자', '거래내용', '입금', '출금', '잔액'],
+    ['2026-06-01', '예약 매출', 250000, '', 1250000]
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, '거래내역');
+  const input = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+  const parsed = await parseExcelFile(input);
+
+  assert.equal(parsed.accountHolderName, '(주)해오름호텔');
+  assert.equal(parsed.transactions.length, 1);
+});
+
+test('extracts an inline account holder label', async () => {
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['예금주 :: 홍길동'],
+    ['일자', '거래내용', '입금', '출금'],
+    ['2026-06-01', '예약 매출', 250000, '']
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, '거래내역');
+  const input = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+  const parsed = await parseExcelFile(input);
+
+  assert.equal(parsed.accountHolderName, '홍길동');
 });
 
 test('rejects unknown headers instead of guessing an input and output column order', async () => {
@@ -73,6 +121,22 @@ test('exports summary values while preserving the exact result.xlsx layout', asy
   );
   assert.equal(report.C5.z, '_-* #,##0_-;\\-* #,##0_-;_-* "-"_-;_-@_-');
   assert.equal(report['!rows'][3].hpt, 20.25);
+});
+
+test('writes an editable report title into the exported workbook', async () => {
+  const template = await fs.readFile(new URL('../../result.xlsx', import.meta.url));
+  const reportTitle = 'A&B <해오름호텔> 2026-06 월 정산';
+  const output = await exportToExcel([], {}, template, {
+    reportCategories: cloneDefaultReportCategories(),
+    reportTitle: reportTitle.normalize('NFD')
+  });
+  const workbook = XLSX.read(output, { type: 'array', cellStyles: true });
+  const zip = await JSZip.loadAsync(output);
+  const sharedStringsXml = await zip.file('xl/sharedStrings.xml').async('string');
+
+  assert.equal(workbook.Sheets.Sheet1.A1.v, reportTitle);
+  assert.equal(sharedStringsXml.includes('해오름호텔'), true);
+  assert.equal(sharedStringsXml.includes('해오름호텔'.normalize('NFD')), false);
 });
 
 test('can remove and add predefined summary rows without changing report structure', async () => {
@@ -187,6 +251,7 @@ test('uses the same major category totals for the dashboard and exported report'
   const view = calculateReportCategoryView(transactions, categories);
 
   assert.deepEqual(view.assignments, ['utilities', 'misc', 'income']);
+  assert.equal(view.incomeTotal, 500000);
   assert.equal(view.categories.find(category => category.id === 'utilities').total, 105250);
   assert.equal(view.categories.find(category => category.id === 'misc').total, 330000);
   assert.deepEqual(view.unclassifiedIndexes, [1]);
@@ -253,6 +318,24 @@ test('keeps KT internet payments out of the KT phone detail', () => {
 
   assert.equal(expenses.details.find(detail => detail.label === 'KT(전화)').value, 55000);
   assert.equal(expenses.details.find(detail => detail.label === 'KT(인터넷)').value, 150000);
+});
+
+test('does not apply legacy vendor amount filters to regular expression rules', () => {
+  const categories = [
+    {
+      id: 'custom',
+      label: '사용자 규칙',
+      details: [{ id: 'custom-kt', label: 'KT 전체', keyword: '.*KT.*', aliases: [], matchType: 'regex' }]
+    },
+    { id: 'misc', label: '기타잡비', details: [] }
+  ];
+  const transactions = [{ description: 'KT통신요금', withdrawal: 150000, deposit: 0 }];
+
+  const view = calculateReportCategoryView(transactions, categories);
+
+  assert.deepEqual(view.assignments, ['custom']);
+  assert.equal(view.categories[0].details[0].value, 150000);
+  assert.deepEqual(view.unclassifiedIndexes, []);
 });
 
 test('distributes duplicate alias-only rules without allocating the same transaction twice', () => {

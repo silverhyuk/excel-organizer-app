@@ -14,11 +14,11 @@ const COLUMN_MAPPINGS = {
 };
 
 /**
- * Parse an Excel file arrayBuffer and extract bank transaction list
+ * Parse an Excel file arrayBuffer and extract transactions and account metadata
  * @param {ArrayBuffer} arrayBuffer 
- * @returns {Promise<Array>} Standardized transactions list
+ * @returns {Promise<{ transactions: Array, accountHolderName: string }>}
  */
-export function parseExcelTransactions(arrayBuffer) {
+export function parseExcelFile(arrayBuffer) {
   return new Promise((resolve, reject) => {
     try {
       const data = new Uint8Array(arrayBuffer);
@@ -78,6 +78,11 @@ export function parseExcelTransactions(arrayBuffer) {
         const withdrawalVal = parseNumber(row[mappingsFound.withdrawal]);
         const depositVal = parseNumber(row[mappingsFound.deposit]);
         const balanceVal = parseNumber(row[mappingsFound.balance]);
+        const balanceCell = row[mappingsFound.balance];
+        const hasBalance = mappingsFound.balance !== undefined
+          && balanceCell !== undefined
+          && balanceCell !== null
+          && balanceCell !== '';
         
         // Skip row if it has no financial value change
         if (withdrawalVal === 0 && depositVal === 0) continue;
@@ -89,6 +94,7 @@ export function parseExcelTransactions(arrayBuffer) {
           withdrawal: withdrawalVal,
           deposit: depositVal,
           balance: balanceVal,
+          hasBalance,
           category: 'etc' // default, classified dynamically
         });
       }
@@ -96,11 +102,40 @@ export function parseExcelTransactions(arrayBuffer) {
       // Sort by date ascending (oldest first)
       transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
       
-      resolve(transactions);
+      resolve({
+        transactions,
+        accountHolderName: findAccountHolderName(rawRows.slice(0, headerRowIndex))
+      });
     } catch (error) {
       reject(error);
     }
   });
+}
+
+export async function parseExcelTransactions(arrayBuffer) {
+  const { transactions } = await parseExcelFile(arrayBuffer);
+  return transactions;
+}
+
+function findAccountHolderName(rows) {
+  for (const row of rows) {
+    if (!Array.isArray(row)) continue;
+    for (let index = 0; index < row.length; index++) {
+      const cell = String(row[index] ?? '').normalize('NFC').trim();
+      const inlineMatch = cell.match(/^(?:예금주명|예금주|계좌명의인)(?:\s*[:：]+\s*|\s+)([^:：].*)$/);
+      const inlineValue = inlineMatch?.[1].trim();
+      if (inlineValue) return inlineValue;
+
+      const label = cell.replace(/\s*[:：]\s*$/, '');
+      if (/^(?:예금주명|예금주|계좌명의인)$/.test(label)) {
+        const value = row.slice(index + 1)
+          .map(candidate => String(candidate ?? '').normalize('NFC').trim())
+          .find(Boolean);
+        if (value) return value;
+      }
+    }
+  }
+  return '';
 }
 
 /**
@@ -462,9 +497,9 @@ function createSharedStringWriter(sharedStringsXml) {
   const additionIndexes = new Map();
   return {
     add(value) {
-      const text = String(value);
+      const text = String(value).normalize('NFC');
       if (additionIndexes.has(text)) return additionIndexes.get(text);
-      additions.push(`<si><t>${escapeXml(value)}</t></si>`);
+      additions.push(`<si><t>${escapeXml(text)}</t></si>`);
       const index = initialUniqueCount + additions.length - 1;
       additionIndexes.set(text, index);
       return index;
@@ -551,9 +586,9 @@ function calculateConfiguredDetails(transactions, reportCategories) {
         selected = last ? matches : matches.slice(0, 1);
       }
       const normalized = normalizeVendorText(detail.keyword);
-      if (normalized === '현대엘레베이터') {
+      if (detail.matchType !== 'regex' && normalized === '현대엘레베이터') {
         selected = matches.filter(tx => detail.label.includes('카리프트') ? tx.withdrawal !== 726000 : tx.withdrawal === 726000);
-      } else if (normalized === 'kt') {
+      } else if (detail.matchType !== 'regex' && normalized === 'kt') {
         selected = matches.filter(tx => tx.withdrawal < 100000);
       }
       selected.forEach(tx => {
@@ -589,11 +624,16 @@ function calculateConfiguredDetails(transactions, reportCategories) {
   return { configured, categoryAssignments, conflicts, unclassifiedTransactions };
 }
 
+function calculateReportIncomeTotal(transactions) {
+  return transactions.reduce((sum, transaction) => sum + (Number(transaction.deposit) || 0), 0);
+}
+
 export function calculateReportCategoryView(transactions, reportCategories) {
   const { configured, categoryAssignments, conflicts, unclassifiedTransactions } = calculateConfiguredDetails(transactions, reportCategories);
   const unclassifiedSet = new Set(unclassifiedTransactions);
   return {
     categories: configured,
+    incomeTotal: calculateReportIncomeTotal(transactions),
     assignments: transactions.map(tx => (
       tx.deposit > 0 && !(tx.withdrawal > 0) ? 'income' : categoryAssignments.get(tx) || 'misc'
     )),
@@ -654,7 +694,7 @@ function createSummaryRows(row, category, detailStartRow, detailEndRow, sharedSt
 
 function buildDynamicConfiguredReport(sheetXml, transactions, reportCategories, sharedStrings) {
   const { configured } = calculateConfiguredDetails(transactions, reportCategories);
-  sheetXml = replaceCellValue(sheetXml, 'C5', transactions.reduce((sum, tx) => sum + tx.deposit, 0));
+  sheetXml = replaceCellValue(sheetXml, 'C5', calculateReportIncomeTotal(transactions));
   const sheetDataMatch = sheetXml.match(/<sheetData>([\s\S]*?)<\/sheetData>/);
   if (!sheetDataMatch) throw new Error('기준 양식의 시트 데이터를 찾을 수 없습니다.');
   const headerRows = [...sheetDataMatch[1].matchAll(/<row\b[^>]*\br="(\d+)"[^>]*>[\s\S]*?<\/row>/g)]
@@ -764,7 +804,7 @@ async function removeStaleCalculationChain(zip) {
  * @param {Array} transactions
  * @param {object} rules
  * @param {ArrayBuffer|Uint8Array} templateBuffer
- * @param {{ enabledSummaryRows?: string[] }} options
+ * @param {{ enabledSummaryRows?: string[], reportCategories?: Array, reportTitle?: string }} options
  * @returns {Promise<ArrayBuffer>}
  */
 export async function exportToExcel(transactions, rules, templateBuffer, options = {}) {
@@ -781,14 +821,21 @@ export async function exportToExcel(transactions, rules, templateBuffer, options
 
   let sheetXml = await sheetFile.async('string');
   const hasDynamicReport = Array.isArray(options.reportCategories);
-  if (hasDynamicReport) {
+  const hasCustomTitle = Boolean(options.reportTitle?.trim());
+  if (hasDynamicReport || hasCustomTitle) {
     const sharedStringsPath = 'xl/sharedStrings.xml';
     const sharedStringsFile = zip.file(sharedStringsPath);
     if (!sharedStringsFile) throw new Error('result.xlsx 기준 양식의 공유 문자열을 찾을 수 없습니다.');
     const sharedStrings = createSharedStringWriter(await sharedStringsFile.async('string'));
-    sheetXml = buildDynamicConfiguredReport(sheetXml, transactions, options.reportCategories, sharedStrings);
+    if (hasCustomTitle) {
+      sheetXml = replaceCellValue(sheetXml, 'A1', sharedStrings.add(options.reportTitle.trim()));
+    }
+    if (hasDynamicReport) {
+      sheetXml = buildDynamicConfiguredReport(sheetXml, transactions, options.reportCategories, sharedStrings);
+    }
     zip.file(sharedStringsPath, sharedStrings.toXml());
-  } else {
+  }
+  if (!hasDynamicReport) {
     const cValues = await calculateReportValues(transactions);
     for (const item of REPORT_TEMPLATE) {
       if (item.row < 5 || cValues[item.row] === undefined) continue;

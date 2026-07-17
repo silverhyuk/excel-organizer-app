@@ -12,9 +12,12 @@ import {
   TrendingUp, 
   DollarSign, 
   FileSpreadsheet,
-  AlertCircle
+  AlertCircle,
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2
 } from 'lucide-react';
-import { calculateReportCategoryView, parseExcelTransactions, exportToExcel } from './utils/excelParser';
+import { calculateReportCategoryView, parseExcelFile, exportToExcel } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
 import {
   addLearnedVendorRule,
@@ -24,7 +27,9 @@ import {
   loadReportCategories,
   saveReportCategories
 } from './utils/reportConfig';
+import { createReportNaming, normalizeDownloadFileName } from './utils/reportNaming';
 import { sumTransactionAmounts } from './utils/transactionTotals';
+import { createSettlementValidationReport } from './utils/settlementValidation';
 import { getDetailPatterns, MATCH_TYPE_OPTIONS } from './utils/vendorMatcher';
 import BaldDodgeGame from './components/BaldDodgeGame';
 import FinancialCharts from './components/FinancialCharts';
@@ -53,6 +58,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [reportCategories, setReportCategories] = useState(cloneDefaultReportCategories);
   const [editingReportCategoryId, setEditingReportCategoryId] = useState('utilities');
   const [newDetailLabel, setNewDetailLabel] = useState('');
@@ -61,8 +67,12 @@ function App() {
   const [reportConfigStatus, setReportConfigStatus] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [accountHolderName, setAccountHolderName] = useState('');
+  const [reportTitle, setReportTitle] = useState('');
+  const [downloadFileName, setDownloadFileName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [showEasterEgg, setShowEasterEgg] = useState(false);
+  const [focusedTransactionIds, setFocusedTransactionIds] = useState([]);
   const reportCategoriesRef = useRef(reportCategories);
   const learnSaveQueueRef = useRef(Promise.resolve());
 
@@ -156,7 +166,8 @@ function App() {
     try {
       setFileName(file.name);
       const arrayBuffer = await file.arrayBuffer();
-      const rawTxList = await parseExcelTransactions(arrayBuffer);
+      const { transactions: rawTxList, accountHolderName: parsedAccountHolderName } = await parseExcelFile(arrayBuffer);
+      const reportNaming = createReportNaming(rawTxList, file.name, parsedAccountHolderName);
       
       // Classify initial transactions
       const classified = rawTxList.map(tx => ({
@@ -165,10 +176,14 @@ function App() {
       }));
       
       setTransactions(classified);
+      setAccountHolderName(parsedAccountHolderName);
+      setReportTitle(reportNaming.title);
+      setDownloadFileName(reportNaming.fileName);
       setSelectedCategory('all');
       setReviewMode('all');
       setLearningTransactionIds(new Set());
       setReviewStatus(null);
+      setFocusedTransactionIds([]);
     } catch (err) {
       console.error(err);
       setErrorMsg(err.message || '엑셀 파일을 읽는 과정에서 오류가 발생했습니다.');
@@ -176,23 +191,33 @@ function App() {
   };
 
   // Export current transactions to excel
-  const handleExport = async () => {
-    if (transactions.length === 0) return;
+  const handleExport = async (event) => {
+    event?.preventDefault();
+    if (transactions.length === 0 || !validationReport.canExport) return;
     
     try {
+      const fallbackNaming = createReportNaming(transactions, fileName, accountHolderName);
+      const safeReportTitle = reportTitle.trim() || fallbackNaming.title;
+      const safeDownloadFileName = normalizeDownloadFileName(downloadFileName || fallbackNaming.fileName);
+      setReportTitle(safeReportTitle);
+      setDownloadFileName(safeDownloadFileName);
       const templateResponse = await fetch(reportTemplateUrl);
       if (!templateResponse.ok) throw new Error('기준 양식을 불러오지 못했습니다.');
       const templateBuffer = await templateResponse.arrayBuffer();
-      const buffer = await exportToExcel(transactions, rules, templateBuffer, { reportCategories });
+      const buffer = await exportToExcel(transactions, rules, templateBuffer, {
+        reportCategories,
+        reportTitle: safeReportTitle
+      });
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'result.xlsx';
+      a.download = safeDownloadFileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      setIsExportModalOpen(false);
     } catch (err) {
       console.error(err);
       alert(err.message || '엑셀 내보내기 중 오류가 발생했습니다.');
@@ -403,9 +428,26 @@ function App() {
     }
   };
 
-  const selectCategory = (categoryId) => {
+  const handleSelectCategory = (categoryId) => {
     setSelectedCategory(categoryId);
     setReviewMode('all');
+    setFocusedTransactionIds([]);
+  };
+
+  const handleSelectReviewMode = (mode) => {
+    setSelectedCategory('all');
+    setReviewMode(mode);
+    setFocusedTransactionIds([]);
+  };
+
+  const handleValidationNavigation = (transactionIds) => {
+    if (transactionIds.length === 0) return;
+    setSelectedCategory('all');
+    setReviewMode('all');
+    setSearchTerm('');
+    setFocusedTransactionIds(transactionIds);
+    setIsExportModalOpen(false);
+    requestAnimationFrame(() => document.getElementById('transaction-list')?.scrollIntoView({ behavior: 'smooth' }));
   };
 
   // Reset to default rules
@@ -421,7 +463,12 @@ function App() {
   const handleResetApp = () => {
     setTransactions([]);
     setFileName('');
+    setAccountHolderName('');
+    setReportTitle('');
+    setDownloadFileName('');
+    setIsExportModalOpen(false);
     setSearchTerm('');
+    setFocusedTransactionIds([]);
     setErrorMsg('');
     setReviewMode('all');
     setLearningTransactionIds(new Set());
@@ -437,16 +484,32 @@ function App() {
     () => calculateReportCategoryView(transactions, reportCategories),
     [transactions, reportCategories]
   );
-  const conflictByIndex = new Map(reportCategoryView.conflicts.map(conflict => [conflict.transactionIndex, conflict]));
-  const unclassifiedIndexes = new Set(reportCategoryView.unclassifiedIndexes);
-  const categorizedTransactions = transactions.map((tx, index) => ({
-    ...tx,
-    category: reportCategoryView.assignments[index],
-    isUnclassified: unclassifiedIndexes.has(index),
-    ruleConflict: conflictByIndex.get(index) || null
-  }));
-  const unclassifiedTransactions = categorizedTransactions.filter(tx => tx.isUnclassified);
-  const unclassifiedTotal = unclassifiedTransactions.reduce((sum, tx) => sum + tx.withdrawal, 0);
+  const validationReport = useMemo(
+    () => createSettlementValidationReport(transactions, reportCategories),
+    [transactions, reportCategories]
+  );
+  const focusedTransactionIdSet = useMemo(
+    () => new Set(focusedTransactionIds),
+    [focusedTransactionIds]
+  );
+  const categorizedTransactions = useMemo(() => {
+    const conflictByIndex = new Map(reportCategoryView.conflicts.map(conflict => [conflict.transactionIndex, conflict]));
+    const unclassifiedIndexes = new Set(reportCategoryView.unclassifiedIndexes);
+    return transactions.map((tx, index) => ({
+      ...tx,
+      category: reportCategoryView.assignments[index],
+      isUnclassified: unclassifiedIndexes.has(index),
+      ruleConflict: conflictByIndex.get(index) || null
+    }));
+  }, [transactions, reportCategoryView]);
+  const unclassifiedTransactions = useMemo(
+    () => categorizedTransactions.filter(tx => tx.isUnclassified),
+    [categorizedTransactions]
+  );
+  const unclassifiedTotal = useMemo(
+    () => unclassifiedTransactions.reduce((sum, tx) => sum + tx.withdrawal, 0),
+    [unclassifiedTransactions]
+  );
   const selectedTransactions = categorizedTransactions.filter(
     tx => selectedCategory === 'all' || tx.category === selectedCategory
   );
@@ -461,10 +524,11 @@ function App() {
     const matchesReview = reviewMode === 'unclassified'
       ? tx.isUnclassified
       : reviewMode === 'conflicts' ? Boolean(tx.ruleConflict) : true;
+    const matchesValidation = focusedTransactionIds.length === 0 || focusedTransactionIdSet.has(tx.id);
     const matchesSearch = tx.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           String(tx.withdrawal).includes(searchTerm) ||
                           String(tx.deposit).includes(searchTerm);
-    return matchesCategory && matchesReview && matchesSearch;
+    return matchesCategory && matchesReview && matchesValidation && matchesSearch;
   });
 
   // Calculate percentages for statistics chart
@@ -502,7 +566,7 @@ function App() {
             <button className="secondary" onClick={handleResetApp}>
               <RefreshCw size={16} /> 다른 파일 업로드
             </button>
-            <button onClick={handleExport}>
+            <button onClick={() => setIsExportModalOpen(true)}>
               <Download size={16} /> 정리된 엑셀 다운로드
             </button>
           </div>
@@ -618,14 +682,14 @@ function App() {
                   </div>
                   <button
                     className={`review-queue-button ${reviewMode === 'unclassified' ? 'active' : ''}`}
-                    onClick={() => { setSelectedCategory('all'); setReviewMode('unclassified'); }}
+                    onClick={() => handleSelectReviewMode('unclassified')}
                   >
                     <span>미분류 거래 {unclassifiedTransactions.length}건</span>
                     <strong>₩{unclassifiedTotal.toLocaleString()}</strong>
                   </button>
                   <button
                     className={`review-queue-button secondary ${reviewMode === 'conflicts' ? 'active' : ''}`}
-                    onClick={() => { setSelectedCategory('all'); setReviewMode('conflicts'); }}
+                    onClick={() => handleSelectReviewMode('conflicts')}
                   >
                     <span>규칙 충돌</span>
                     <strong>{reportCategoryView.conflicts.length}건</strong>
@@ -633,7 +697,7 @@ function App() {
                 </div>
                 <div 
                   className={`category-item ${selectedCategory === 'all' ? 'active' : ''}`}
-                  onClick={() => selectCategory('all')}
+                  onClick={() => handleSelectCategory('all')}
                 >
                   <span style={{ fontWeight: 500 }}>전체보기</span>
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{transactions.length}건</span>
@@ -648,7 +712,7 @@ function App() {
                     <div
                       key={stat.key}
                       className={`category-item ${selectedCategory === stat.key ? 'active' : ''}`}
-                      onClick={() => selectCategory(stat.key)}
+                      onClick={() => handleSelectCategory(stat.key)}
                     >
                       <span className={`category-badge ${stat.colorClass}`}>{stat.name}</span>
                       <span className="category-amount">₩{stat.amount.toLocaleString()}</span>
@@ -665,7 +729,7 @@ function App() {
                     <div
                       key={stat.key}
                       className={`category-item ${selectedCategory === stat.key ? 'active' : ''}`}
-                      onClick={() => selectCategory(stat.key)}
+                      onClick={() => handleSelectCategory(stat.key)}
                     >
                       <span className={`category-badge ${stat.colorClass}`}>{stat.name}</span>
                       <span className="category-amount">
@@ -704,7 +768,7 @@ function App() {
             </div>
 
             {/* Right Column: Transactions Data List */}
-            <div className="glass-panel table-panel">
+            <div className="glass-panel table-panel" id="transaction-list">
               <div className="table-header-row">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <span className="table-title">
@@ -724,7 +788,10 @@ function App() {
                     type="text" 
                     placeholder="거래처/금액 검색..." 
                     value={searchTerm} 
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setFocusedTransactionIds([]);
+                    }}
                     style={{ width: '100%', padding: '0.45rem 1rem 0.45rem 2rem', fontSize: '0.85rem' }}
                   />
                   {searchTerm && (
@@ -742,6 +809,15 @@ function App() {
                   <span>{reviewStatus.message}</span>
                   <button className="review-status-close" onClick={() => setReviewStatus(null)} aria-label="안내 닫기">
                     <X size={14} />
+                  </button>
+                </div>
+              )}
+
+              {focusedTransactionIds.length > 0 && (
+                <div className="validation-filter-banner">
+                  <span>검증 경고에 해당하는 거래 {filteredTransactions.length}건만 표시 중입니다.</span>
+                  <button type="button" className="secondary" onClick={() => setFocusedTransactionIds([])}>
+                    전체 거래 보기
                   </button>
                 </div>
               )}
@@ -833,6 +909,113 @@ function App() {
 
           </div>
         </>
+      )}
+
+      {/* Export Settings Modal */}
+      {isExportModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsExportModalOpen(false)}>
+          <form
+            className="modal-content glass-panel export-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="export-modal-title"
+            onSubmit={handleExport}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.stopPropagation();
+                setIsExportModalOpen(false);
+              }
+            }}
+          >
+            <div className="export-modal-header">
+              <div>
+                <h3 id="export-modal-title">내보내기 전 정산 검증</h3>
+                <p>검증 결과와 보고서 정보를 확인한 뒤 다운로드하세요.</p>
+              </div>
+              <button
+                type="button"
+                className="secondary export-modal-close"
+                onClick={() => setIsExportModalOpen(false)}
+                aria-label="내보내기 팝업 닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="export-modal-source">
+              <span>원본 파일</span>
+              <strong>{fileName}</strong>
+            </div>
+
+            <section className="validation-report" aria-label="정산 검증 결과">
+              <div className={`validation-item ${validationReport.errors.length > 0 ? 'error' : 'success'}`}>
+                {validationReport.errors.length > 0 ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
+                <div>
+                  <strong>대시보드와 보고서 합계</strong>
+                  <span>
+                    {validationReport.errors[0]?.description
+                      || `수입 ₩${validationReport.totals.reportDeposit.toLocaleString()} · 지출 ₩${validationReport.totals.reportWithdrawal.toLocaleString()}`}
+                  </span>
+                </div>
+                <b>{validationReport.errors.length > 0 ? '오류' : '일치'}</b>
+              </div>
+
+              {validationReport.warnings.map(item => (
+                <div className="validation-item warning" key={item.id}>
+                  <AlertTriangle size={20} />
+                  <div>
+                    <strong>{item.title}</strong>
+                    <span>{item.description}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary validation-navigation"
+                    onClick={() => handleValidationNavigation(item.transactionIds)}
+                  >
+                    거래 보기 <ArrowRight size={14} />
+                  </button>
+                </div>
+              ))}
+
+              {validationReport.warnings.length === 0 && validationReport.errors.length === 0 && (
+                <div className="validation-empty">
+                  <CheckCircle2 size={18} /> 미분류·중복 의심·잔액 흐름 이상이 없습니다.
+                </div>
+              )}
+            </section>
+
+            <div className="form-group">
+              <label htmlFor="report-title">보고서 제목</label>
+              <input
+                id="report-title"
+                value={reportTitle}
+                onChange={(event) => setReportTitle(event.target.value)}
+                placeholder="보고서 제목"
+                autoFocus
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="download-file-name">다운로드 파일명</label>
+              <input
+                id="download-file-name"
+                value={downloadFileName}
+                onChange={(event) => setDownloadFileName(event.target.value)}
+                onBlur={() => setDownloadFileName(normalizeDownloadFileName(downloadFileName))}
+                placeholder="사업장_YYYY-MM_월정산.xlsx"
+              />
+            </div>
+
+            <div className="export-modal-actions">
+              <button type="button" className="secondary" onClick={() => setIsExportModalOpen(false)}>
+                취소
+              </button>
+              <button type="submit" disabled={!validationReport.canExport}>
+                <Download size={16} /> {validationReport.canExport ? '검증 완료 · 다운로드' : '오류 수정 필요'}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {/* Rules Manager Modal */}
