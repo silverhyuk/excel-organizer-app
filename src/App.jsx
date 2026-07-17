@@ -15,7 +15,10 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowRight,
-  CheckCircle2
+  CheckCircle2,
+  Moon,
+  ShieldCheck,
+  Sun
 } from 'lucide-react';
 import { calculateReportCategoryView, parseExcelFile, exportToExcel } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
@@ -31,6 +34,7 @@ import { createReportNaming, normalizeDownloadFileName } from './utils/reportNam
 import { sumTransactionAmounts } from './utils/transactionTotals';
 import { createSettlementValidationReport } from './utils/settlementValidation';
 import { getDetailPatterns, MATCH_TYPE_OPTIONS } from './utils/vendorMatcher';
+import { getNextTheme, resolveTheme, THEME_STORAGE_KEY, THEMES } from './utils/theme';
 import BaldDodgeGame from './components/BaldDodgeGame';
 import FinancialCharts from './components/FinancialCharts';
 import reportTemplateUrl from '../result.xlsx?url';
@@ -49,6 +53,15 @@ function VendorPatternsInput({ detail, onChange }) {
 }
 
 function App() {
+  const [theme, setTheme] = useState(() => {
+    let savedTheme = null;
+    try {
+      savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    } catch {
+      // Fall back to the operating system preference when storage is unavailable.
+    }
+    return resolveTheme(savedTheme, window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  });
   const [transactions, setTransactions] = useState([]);
   const [rules, setRules] = useState(getRules());
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -92,6 +105,16 @@ function App() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // The active theme still applies for the current session.
+    }
+  }, [theme]);
 
   useEffect(() => {
     let active = true;
@@ -556,64 +579,88 @@ function App() {
   return (
     <div className="app-container">
       {/* Header */}
-      <header className="glass-panel">
+      <header className="glass-panel app-header">
         <div className="logo-container">
           <span className="logo-text">딸깍 정리기</span>
-          <span className="logo-badge">Premium Desktop v0.1</span>
+          {fileName && <span className="current-file" title={fileName}>{fileName}</span>}
         </div>
-        {transactions.length > 0 && (
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <button className="secondary" onClick={handleResetApp}>
-              <RefreshCw size={16} /> 다른 파일 업로드
-            </button>
-            <button onClick={() => setIsExportModalOpen(true)}>
-              <Download size={16} /> 정리된 엑셀 다운로드
-            </button>
-          </div>
-        )}
+        <div className="header-actions">
+          <button
+            type="button"
+            className="secondary icon-button theme-toggle"
+            onClick={() => setTheme(current => getNextTheme(current))}
+            aria-label={theme === THEMES.DARK ? '라이트 모드로 전환' : '다크 모드로 전환'}
+            title={theme === THEMES.DARK ? '라이트 모드' : '다크 모드'}
+          >
+            {theme === THEMES.DARK ? <Sun size={17} /> : <Moon size={17} />}
+          </button>
+          {transactions.length > 0 && (
+            <>
+              <button className="secondary" onClick={handleResetApp}>
+                <RefreshCw size={16} /> 다른 파일 업로드
+              </button>
+              <button onClick={() => setIsExportModalOpen(true)}>
+                <Download size={16} /> 검토 완료 · 다운로드
+              </button>
+            </>
+          )}
+        </div>
       </header>
 
       {/* Main Content Area */}
       {transactions.length === 0 ? (
         // UPLOAD VIEW
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '800px', margin: '3rem auto 0', width: '100%' }}>
+        <main className="upload-view">
           <div 
             className={`drop-zone glass-panel ${isDragging ? 'active' : ''}`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            onClick={() => document.getElementById('file-upload-input').click()}
             id="excel-drop-zone"
           >
             <input 
               id="file-upload-input" 
               type="file" 
               accept=".xlsx, .xls" 
-              style={{ display: 'none' }} 
+              className="visually-hidden"
               onChange={handleFileChange}
             />
             <Upload className="drop-zone-icon" />
-            <h2 className="upload-title">계좌 거래 내역 엑셀 파일을 여기에 끌어다 놓으세요</h2>
-            <p className="upload-desc">또는 영역을 클릭하여 PC에서 파일을 찾아보세요 (.xlsx, .xls)</p>
+            <span className="upload-eyebrow">EXCEL ORGANIZER</span>
+            <h1 className="upload-title">계좌 거래 내역을 빠르게 정리하세요</h1>
+            <p className="upload-desc">엑셀 파일을 끌어다 놓거나 아래 버튼으로 선택하세요.</p>
+            <button
+              type="button"
+              className="upload-button"
+              onClick={(event) => {
+                event.stopPropagation();
+                document.getElementById('file-upload-input').click();
+              }}
+            >
+              <FileSpreadsheet size={17} /> 엑셀 파일 선택
+            </button>
+            <span className="upload-formats">.xlsx · .xls</span>
           </div>
 
           {errorMsg && (
-            <div className="glass-panel" style={{ borderColor: 'var(--accent-rose)', padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--accent-rose)', background: 'rgba(244, 63, 94, 0.05)' }}>
+            <div className="glass-panel inline-alert error" role="alert">
               <AlertCircle size={20} />
-              <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{errorMsg}</span>
+              <span>{errorMsg}</span>
             </div>
           )}
 
-          {/* Intro Information */}
-          <div className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 600, borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>💡 엑셀 업로드 팁</h3>
-            <ul style={{ paddingLeft: '1.25rem', fontSize: '0.9rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <li>국민, 신한, 우리, 농협, 하나 등 국내 모든 은행의 거래내역 엑셀을 그대로 지원합니다.</li>
-              <li>파일에 들어있는 열 이름(예: 거래일시, 출금액, 적요 등)을 똑똑하게 자동으로 분석하여 매핑해 드립니다.</li>
-              <li>데이터는 안전하게 귀하의 브라우저 로컬 환경에서만 처리되며 서버로 전송되지 않습니다.</li>
-            </ul>
-          </div>
-        </div>
+          <section className="glass-panel upload-guide" aria-label="사용 순서">
+            <ol className="upload-steps">
+              <li><strong>1</strong><span><b>파일 선택</b>은행 거래 내역 업로드</span></li>
+              <li><strong>2</strong><span><b>자동 분류</b>거래와 카테고리 확인</span></li>
+              <li><strong>3</strong><span><b>검토·저장</b>미분류 확인 후 다운로드</span></li>
+            </ol>
+            <div className="privacy-note">
+              <ShieldCheck size={18} />
+              <span><strong>데이터는 이 기기에서만 처리됩니다.</strong> 파일과 거래 정보는 서버로 전송되지 않습니다.</span>
+            </div>
+          </section>
+        </main>
       ) : (
         // DASHBOARD VIEW
         <>
@@ -653,19 +700,16 @@ function App() {
             </div>
           </div>
 
-          <FinancialCharts transactions={transactions} categoryStats={categoryStats} />
-
           {/* Sub Grid (Sidebar Rules & Main Table) */}
           <div className="dashboard-grid">
             
             {/* Sidebar Column: Categories List & Rules Toggle */}
             <div className="glass-panel sidebar-panel">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>거래 카테고리</h3>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div className="sidebar-header">
+                <h3>거래 카테고리</h3>
+                <div>
                   <button
-                    className="secondary"
-                    style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                    className="secondary compact-button"
                     onClick={() => setIsSummaryModalOpen(true)}
                     id="btn-summary-manager"
                   >
@@ -695,13 +739,14 @@ function App() {
                     <strong>{reportCategoryView.conflicts.length}건</strong>
                   </button>
                 </div>
-                <div 
+                <button
+                  type="button"
                   className={`category-item ${selectedCategory === 'all' ? 'active' : ''}`}
                   onClick={() => handleSelectCategory('all')}
                 >
-                  <span style={{ fontWeight: 500 }}>전체보기</span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{transactions.length}건</span>
-                </div>
+                  <span className="category-label">전체보기</span>
+                  <span className="category-count">{transactions.length}건</span>
+                </button>
 
                 <div className="category-group category-group-income">
                   <div className="category-group-title">
@@ -709,14 +754,15 @@ function App() {
                     <span>입금 기준</span>
                   </div>
                   {categoryStats.filter(stat => stat.key === 'income').map(stat => (
-                    <div
+                    <button
+                      type="button"
                       key={stat.key}
                       className={`category-item ${selectedCategory === stat.key ? 'active' : ''}`}
                       onClick={() => handleSelectCategory(stat.key)}
                     >
                       <span className={`category-badge ${stat.colorClass}`}>{stat.name}</span>
                       <span className="category-amount">₩{stat.amount.toLocaleString()}</span>
-                    </div>
+                    </button>
                   ))}
                 </div>
 
@@ -726,7 +772,8 @@ function App() {
                     <span>출금 기준</span>
                   </div>
                   {categoryStats.filter(stat => stat.key !== 'income').map(stat => (
-                    <div
+                    <button
+                      type="button"
                       key={stat.key}
                       className={`category-item ${selectedCategory === stat.key ? 'active' : ''}`}
                       onClick={() => handleSelectCategory(stat.key)}
@@ -735,14 +782,14 @@ function App() {
                       <span className="category-amount">
                         ₩{stat.amount.toLocaleString()} ({stat.percentage.toFixed(0)}%)
                       </span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
 
               {/* Custom SVG Mini Progress Bars Chart */}
-              <div className="custom-chart-container" style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '1.25rem', marginTop: '0.5rem' }}>
-                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>지출 점유율</span>
+              <div className="custom-chart-container category-share">
+                <span className="category-share-title">지출 점유율</span>
                 {categoryStats.filter(stat => stat.key !== 'income' && stat.amount > 0).map(stat => (
                   <div key={stat.key} className="chart-bar-row">
                     <div className="chart-bar-info">
@@ -752,14 +799,7 @@ function App() {
                     <div className="chart-bar-track">
                       <div 
                         className={`chart-bar-fill ${stat.colorClass}`}
-                        style={{ 
-                          width: `${stat.percentage}%`,
-                          background: stat.key === 'salary' ? '#8a6f48' :
-                                      stat.key === 'utilities' ? '#668b8c' :
-                                      stat.key === 'card' ? '#486581' :
-                                      stat.key === 'advertising' ? '#9b7256' :
-                                      stat.key === 'expenses' ? '#b86d62' : '#7b817c'
-                        }}
+                        style={{ width: `${stat.percentage}%` }}
                       />
                     </div>
                   </div>
@@ -770,20 +810,20 @@ function App() {
             {/* Right Column: Transactions Data List */}
             <div className="glass-panel table-panel" id="transaction-list">
               <div className="table-header-row">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div className="table-title-group">
                   <span className="table-title">
                     {tableTitle} ({filteredTransactions.length}건)
                   </span>
                   {selectedCategory !== 'all' && reviewMode === 'all' && (
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      선택된 {selectedIncomeOnly ? '입금' : '지출'} 합계: <strong style={{ color: 'var(--text-primary)' }}>₩{selectedTotal.toLocaleString()}</strong>
+                    <span className="selected-total">
+                      선택된 {selectedIncomeOnly ? '입금' : '지출'} 합계: <strong>₩{selectedTotal.toLocaleString()}</strong>
                     </span>
                   )}
                 </div>
 
                 {/* Search Input */}
-                <div style={{ position: 'relative', width: '250px' }}>
-                  <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <div className="table-search">
+                  <Search size={16} className="table-search-icon" aria-hidden="true" />
                   <input 
                     type="text" 
                     placeholder="거래처/금액 검색..." 
@@ -792,14 +832,12 @@ function App() {
                       setSearchTerm(e.target.value);
                       setFocusedTransactionIds([]);
                     }}
-                    style={{ width: '100%', padding: '0.45rem 1rem 0.45rem 2rem', fontSize: '0.85rem' }}
+                    className="table-search-input"
                   />
                   {searchTerm && (
-                    <X 
-                      size={14} 
-                      onClick={() => setSearchTerm('')} 
-                      style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: 'var(--text-muted)' }} 
-                    />
+                    <button type="button" className="table-search-clear" onClick={() => setSearchTerm('')} aria-label="검색어 지우기">
+                      <X size={14} />
+                    </button>
                   )}
                 </div>
               </div>
@@ -827,7 +865,7 @@ function App() {
                 {filteredTransactions.length === 0 ? (
                   <div className="empty-state">
                     <FileSpreadsheet className="empty-state-icon" />
-                    <p style={{ fontSize: '0.95rem' }}>검색 결과가 없습니다.</p>
+                    <p>검색 결과가 없습니다.</p>
                   </div>
                 ) : (
                   <table>
@@ -836,17 +874,17 @@ function App() {
                         <th>거래일시</th>
                         <th>거래처 (적요)</th>
                         <th>구분</th>
-                        <th style={{ textAlign: 'right' }}>출금액(지출)</th>
-                        <th style={{ textAlign: 'right' }}>입금액(수입)</th>
-                        <th style={{ textAlign: 'right' }}>잔액</th>
+                        <th className="amount-heading">출금액(지출)</th>
+                        <th className="amount-heading">입금액(수입)</th>
+                        <th className="amount-heading">잔액</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredTransactions.map((tx) => (
                         <tr key={tx.id}>
-                          <td style={{ whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{tx.date}</td>
+                          <td className="transaction-date">{tx.date}</td>
                           <td>
-                            <div style={{ fontWeight: 500 }}>{tx.description}</div>
+                            <div className="transaction-description">{tx.description}</div>
                             {tx.isUnclassified && <span className="review-badge unclassified">미분류</span>}
                             {tx.ruleConflict && (
                               <span className="review-badge conflict" title={tx.ruleConflict.matches.map(match => `${match.categoryLabel} > ${match.detailLabel}`).join('\n')}>
@@ -896,7 +934,7 @@ function App() {
                           <td className="amount-col in">
                             {tx.deposit > 0 ? `₩${tx.deposit.toLocaleString()}` : '-'}
                           </td>
-                          <td className="amount-col" style={{ color: 'var(--text-muted)' }}>
+                          <td className="amount-col balance-col">
                             ₩{tx.balance.toLocaleString()}
                           </td>
                         </tr>
@@ -908,6 +946,8 @@ function App() {
             </div>
 
           </div>
+
+          <FinancialCharts transactions={transactions} categoryStats={categoryStats} />
         </>
       )}
 

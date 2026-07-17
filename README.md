@@ -91,7 +91,7 @@ KEPCO
 *   **Frontend**: React (Vite)
 *   **Desktop Shell**: Tauri v2 (Rust Backend)
 *   **Excel Engine**: SheetJS (`xlsx`)
-*   **Styling**: Vanilla CSS (Glassmorphism & Cyberpunk Dark Theme)
+*   **Styling**: Vanilla CSS (밝은 호텔/오피스 테마 + 다크 모드)
 *   **Icons**: Lucide React
 *   **Typography**: Google Fonts Outfit & Noto Sans KR
 
@@ -157,7 +157,7 @@ excel-organizer-app/
 │   │   ├── excelParser.js  # 은행별 엑셀 파서 및 익스포터
 │   │   └── classifier.js   # 키워드 기반 지출 분류 엔진
 │   ├── App.jsx             # 메인 앱 코디네이터 및 상태 관리
-│   └── index.css           # 다크 테마 및 유리 질감(Glassmorphism) 스타일시트
+│   └── index.css           # 라이트/다크 테마와 공통 디자인 토큰
 ├── index.html              # HTML 진입점 및 SEO 적용
 └── package.json            # npm 라이브러리 종속성 설정
 ```
