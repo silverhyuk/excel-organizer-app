@@ -17,7 +17,7 @@ import {
   ArrowRight,
   CheckCircle2
 } from 'lucide-react';
-import { calculateReportCategoryView, parseExcelTransactions, exportToExcel } from './utils/excelParser';
+import { calculateReportCategoryView, parseExcelFile, exportToExcel } from './utils/excelParser';
 import { getRules, saveRules, classifyTransaction } from './utils/classifier';
 import { createReportCategory, cloneDefaultReportCategories, loadReportCategories, saveReportCategories } from './utils/reportConfig';
 import { createReportNaming, normalizeDownloadFileName } from './utils/reportNaming';
@@ -42,6 +42,7 @@ function App() {
   const [reportConfigStatus, setReportConfigStatus] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [accountHolderName, setAccountHolderName] = useState('');
   const [reportTitle, setReportTitle] = useState('');
   const [downloadFileName, setDownloadFileName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -128,8 +129,8 @@ function App() {
     try {
       setFileName(file.name);
       const arrayBuffer = await file.arrayBuffer();
-      const rawTxList = await parseExcelTransactions(arrayBuffer);
-      const reportNaming = createReportNaming(rawTxList, file.name);
+      const { transactions: rawTxList, accountHolderName: parsedAccountHolderName } = await parseExcelFile(arrayBuffer);
+      const reportNaming = createReportNaming(rawTxList, file.name, parsedAccountHolderName);
       
       // Classify initial transactions
       const classified = rawTxList.map(tx => ({
@@ -138,6 +139,7 @@ function App() {
       }));
       
       setTransactions(classified);
+      setAccountHolderName(parsedAccountHolderName);
       setReportTitle(reportNaming.title);
       setDownloadFileName(reportNaming.fileName);
       setSelectedCategory('all');
@@ -154,7 +156,7 @@ function App() {
     if (transactions.length === 0 || !validationReport.canExport) return;
     
     try {
-      const fallbackNaming = createReportNaming(transactions, fileName);
+      const fallbackNaming = createReportNaming(transactions, fileName, accountHolderName);
       const safeReportTitle = reportTitle.trim() || fallbackNaming.title;
       const safeDownloadFileName = normalizeDownloadFileName(downloadFileName || fallbackNaming.fileName);
       setReportTitle(safeReportTitle);
@@ -346,6 +348,7 @@ function App() {
   const handleResetApp = () => {
     setTransactions([]);
     setFileName('');
+    setAccountHolderName('');
     setReportTitle('');
     setDownloadFileName('');
     setIsExportModalOpen(false);

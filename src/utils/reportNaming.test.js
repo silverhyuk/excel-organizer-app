@@ -54,6 +54,19 @@ test('creates editable report defaults from the source file and transaction peri
   });
 });
 
+test('prefers the account holder name over the inferred source file business name', () => {
+  const naming = createReportNaming(
+    [{ date: '2026-06-03' }],
+    '다른사업장_거래내역.xlsx',
+    '(주)해오름호텔'.normalize('NFD')
+  );
+
+  assert.deepEqual(naming, {
+    title: '(주)해오름호텔 2026-06 월 정산',
+    fileName: '(주)해오름호텔_2026-06_월정산.xlsx'
+  });
+});
+
 test('removes unsafe file name characters and guarantees an xlsx extension', () => {
   assert.equal(normalizeDownloadFileName('해오름<호텔>:6월/정산?.xlsx'), '해오름_호텔_6월_정산_.xlsx');
   assert.equal(normalizeDownloadFileName('CON'), '_CON.xlsx');
