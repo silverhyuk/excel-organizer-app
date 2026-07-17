@@ -11,7 +11,21 @@ import {
   YAxis
 } from 'recharts';
 
-const CATEGORY_COLORS = ['#8a6f48', '#668b8c', '#486581', '#9b7256', '#b86d62', '#7b817c'];
+const CATEGORY_COLORS = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
+  'var(--chart-6)'
+];
+
+const tooltipStyle = {
+  background: 'var(--surface-elevated)',
+  borderColor: 'var(--border-glass)',
+  borderRadius: 10,
+  color: 'var(--text-primary)'
+};
 
 const formatWon = value => `₩${Number(value).toLocaleString()}`;
 
@@ -56,7 +70,12 @@ export default function FinancialCharts({ transactions, categoryStats }) {
                   <Pie data={expenseData} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="82%" paddingAngle={2} stroke="none">
                     {expenseData.map((entry, index) => <Cell key={entry.name} fill={CATEGORY_COLORS[index % CATEGORY_COLORS.length]} />)}
                   </Pie>
-                  <Tooltip formatter={value => formatWon(value)} contentStyle={{ borderRadius: 10, borderColor: '#e0d5c5' }} />
+                  <Tooltip
+                    formatter={value => formatWon(value)}
+                    contentStyle={tooltipStyle}
+                    labelStyle={{ color: 'var(--text-primary)' }}
+                    itemStyle={{ color: 'var(--text-primary)' }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -87,15 +106,21 @@ export default function FinancialCharts({ transactions, categoryStats }) {
               <AreaChart data={cashFlowData} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="cashFlowFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#486581" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#486581" stopOpacity={0.02} />
+                    <stop offset="0%" stopColor="var(--chart-3)" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="var(--chart-3)" stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#ece4d8" strokeDasharray="3 4" vertical={false} />
-                <XAxis dataKey="date" tick={{ fill: '#7c8490', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={value => `${Math.round(value / 10000)}만`} tick={{ fill: '#7c8490', fontSize: 11 }} axisLine={false} tickLine={false} width={48} />
-                <Tooltip formatter={(value, name) => [formatWon(value), name === 'cumulative' ? '누적 현금흐름' : name]} labelFormatter={label => `날짜 ${label}`} contentStyle={{ borderRadius: 10, borderColor: '#e0d5c5' }} />
-                <Area type="monotone" dataKey="cumulative" stroke="#486581" strokeWidth={2.5} fill="url(#cashFlowFill)" activeDot={{ r: 5, fill: '#b28b4f' }} />
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 4" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={value => `${Math.round(value / 10000)}만`} tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} width={48} />
+                <Tooltip
+                  formatter={(value, name) => [formatWon(value), name === 'cumulative' ? '누적 현금흐름' : name]}
+                  labelFormatter={label => `날짜 ${label}`}
+                  contentStyle={tooltipStyle}
+                  labelStyle={{ color: 'var(--text-primary)' }}
+                  itemStyle={{ color: 'var(--text-primary)' }}
+                />
+                <Area type="monotone" dataKey="cumulative" stroke="var(--chart-3)" strokeWidth={2.5} fill="url(#cashFlowFill)" activeDot={{ r: 5, fill: 'var(--chart-1)' }} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
