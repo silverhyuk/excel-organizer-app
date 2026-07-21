@@ -705,6 +705,8 @@ function App() {
             </div>
           </div>
 
+          <FinancialCharts transactions={transactions} categoryStats={categoryStats} />
+
           {/* Sub Grid (Sidebar Rules & Main Table) */}
           <div className="dashboard-grid">
             
@@ -954,8 +956,6 @@ function App() {
             </div>
 
           </div>
-
-          <FinancialCharts transactions={transactions} categoryStats={categoryStats} />
         </>
       )}
 
