@@ -35,6 +35,7 @@ import { sumTransactionAmounts } from './utils/transactionTotals';
 import { createSettlementValidationReport } from './utils/settlementValidation';
 import { getDetailPatterns, MATCH_TYPE_OPTIONS } from './utils/vendorMatcher';
 import { getNextTheme, resolveTheme, THEME_STORAGE_KEY, THEMES } from './utils/theme';
+import { isGameToggleShortcut } from './utils/dodgeGame';
 import BaldDodgeGame from './components/BaldDodgeGame';
 import FinancialCharts from './components/FinancialCharts';
 import reportTemplateUrl from '../result.xlsx?url';
@@ -93,10 +94,11 @@ function App() {
   const [editingCategoryKey, setEditingCategoryKey] = useState('hotel');
   const [newKeyword, setNewKeyword] = useState('');
 
-  // Listen for the Escape key to toggle the easter egg
+  // Toggle the easter egg with Command+G on macOS or Ctrl+G on Windows.
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
+    const handleKeyDown = (event) => {
+      if (isGameToggleShortcut(event)) {
+        event.preventDefault();
         setShowEasterEgg(prev => !prev);
       }
     };

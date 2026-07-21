@@ -5,11 +5,15 @@ import baldDancerImg from '../assets/bald_dancer.jpg';
 import {
   GAME_HEIGHT,
   GAME_WIDTH,
+  HEART_SCORE,
   PLAYER_SIZE,
-  createObstacle,
+  calculateScore,
+  createBomb,
+  createHeart,
+  getHeartSpawnInterval,
   getSpawnInterval,
-  hasCollision,
-  movePlayer
+  movePlayer,
+  resolveFallingItemCollisions
 } from '../utils/dodgeGame';
 
 const HIGH_SCORE_KEY = 'excel_organizer_bald_dodge_high_score';
@@ -21,10 +25,12 @@ function createInitialGame() {
       y: GAME_HEIGHT - PLAYER_SIZE - 28,
       size: PLAYER_SIZE
     },
-    obstacles: [],
+    items: [],
     elapsed: 0,
-    lastSpawn: 0,
+    lastBombSpawn: 0,
+    lastHeartSpawn: 0,
     dodged: 0,
+    heartsCollected: 0,
     score: 0
   };
 }
@@ -62,44 +68,55 @@ function drawBackground(context, elapsed) {
   context.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 }
 
-function drawObstacle(context, obstacle) {
-  const center = obstacle.size / 2;
+function drawFallingItem(context, item) {
+  const center = item.size / 2;
   context.save();
-  context.translate(obstacle.x + center, obstacle.y + center);
-  context.rotate(obstacle.angle);
-  context.shadowBlur = 18;
-  context.shadowColor = `hsl(${obstacle.hue} 85% 62%)`;
-  context.fillStyle = `hsl(${obstacle.hue} 78% 58%)`;
+  context.translate(item.x + center, item.y + center);
+  context.rotate(item.angle);
 
-  if (obstacle.kind === 0) {
+  if (item.type === 'heart') {
+    context.shadowBlur = 22;
+    context.shadowColor = '#fb7185';
+    context.fillStyle = '#f43f5e';
     context.beginPath();
-    context.arc(0, 0, center, 0, Math.PI * 2);
-    context.fill();
-    context.strokeStyle = 'rgba(255,255,255,0.75)';
-    context.lineWidth = 2;
-    context.beginPath();
-    context.moveTo(-center * 0.7, 0);
-    context.lineTo(center * 0.7, 0);
-    context.moveTo(0, -center * 0.7);
-    context.lineTo(0, center * 0.7);
-    context.stroke();
-  } else if (obstacle.kind === 1) {
-    context.beginPath();
-    context.moveTo(0, -center);
-    context.lineTo(center, 0);
-    context.lineTo(0, center);
-    context.lineTo(-center, 0);
+    context.moveTo(0, center * 0.82);
+    context.bezierCurveTo(-center * 1.08, center * 0.14, -center * 0.9, -center * 0.72, -center * 0.35, -center * 0.72);
+    context.bezierCurveTo(-center * 0.08, -center * 0.72, 0, -center * 0.5, 0, -center * 0.3);
+    context.bezierCurveTo(0, -center * 0.5, center * 0.08, -center * 0.72, center * 0.35, -center * 0.72);
+    context.bezierCurveTo(center * 0.9, -center * 0.72, center * 1.08, center * 0.14, 0, center * 0.82);
     context.closePath();
     context.fill();
+    context.strokeStyle = '#fecdd3';
+    context.lineWidth = 2;
+    context.stroke();
   } else {
-    context.fillRect(-center, -center, obstacle.size, obstacle.size);
-    context.fillStyle = 'rgba(8, 14, 26, 0.72)';
-    context.fillRect(-center * 0.55, -center * 0.55, center * 1.1, center * 1.1);
+    context.shadowBlur = 20;
+    context.shadowColor = '#f97316';
+    context.fillStyle = '#171923';
+    context.beginPath();
+    context.arc(0, center * 0.12, center * 0.72, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = '#6b7280';
+    context.lineWidth = 2;
+    context.stroke();
+
+    context.strokeStyle = '#d6a85f';
+    context.lineWidth = 3;
+    context.beginPath();
+    context.moveTo(center * 0.28, -center * 0.48);
+    context.quadraticCurveTo(center * 0.38, -center * 0.92, center * 0.75, -center * 0.84);
+    context.stroke();
+
     context.fillStyle = '#fff';
-    context.font = `700 ${Math.max(12, obstacle.size * 0.4)}px sans-serif`;
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillText('X', 0, 1);
+    context.globalAlpha = 0.35;
+    context.beginPath();
+    context.arc(-center * 0.25, -center * 0.12, center * 0.17, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 1;
+    context.fillStyle = '#fb923c';
+    context.beginPath();
+    context.arc(center * 0.78, -center * 0.86, 4, 0, Math.PI * 2);
+    context.fill();
   }
   context.restore();
 }
@@ -139,7 +156,7 @@ function drawScene(canvas, game, image) {
   const context = canvas?.getContext('2d');
   if (!context) return;
   drawBackground(context, game.elapsed);
-  game.obstacles.forEach(obstacle => drawObstacle(context, obstacle));
+  game.items.forEach(item => drawFallingItem(context, item));
   drawPlayer(context, game.player, image, game.elapsed);
 }
 
@@ -150,6 +167,7 @@ export default function BaldDodgeGame({ onClose }) {
   const directionsRef = useRef({ up: false, down: false, left: false, right: false });
   const [phase, setPhase] = useState('ready');
   const [score, setScore] = useState(0);
+  const [heartsCollected, setHeartsCollected] = useState(0);
   const [highScore, setHighScore] = useState(() => {
     try {
       return Number(localStorage.getItem(HIGH_SCORE_KEY)) || 0;
@@ -162,6 +180,7 @@ export default function BaldDodgeGame({ onClose }) {
     directionsRef.current = { up: false, down: false, left: false, right: false };
     gameRef.current = createInitialGame();
     setScore(0);
+    setHeartsCollected(0);
     setPhase('playing');
   }, []);
 
@@ -232,27 +251,40 @@ export default function BaldDodgeGame({ onClose }) {
       game.elapsed += deltaSeconds * 1000;
       game.player = movePlayer(game.player, directionsRef.current, deltaSeconds);
 
-      if (game.elapsed - game.lastSpawn >= getSpawnInterval(game.elapsed)) {
-        game.obstacles.push(createObstacle(game.elapsed));
-        game.lastSpawn = game.elapsed;
+      if (game.elapsed - game.lastBombSpawn >= getSpawnInterval(game.elapsed)) {
+        game.items.push(createBomb(game.elapsed));
+        game.lastBombSpawn = game.elapsed;
       }
 
-      game.obstacles.forEach(obstacle => {
-        obstacle.y += obstacle.speed * deltaSeconds;
-        obstacle.angle += obstacle.spin * deltaSeconds;
-      });
-      const remaining = [];
-      for (const obstacle of game.obstacles) {
-        if (obstacle.y > GAME_HEIGHT + obstacle.size) game.dodged += 1;
-        else remaining.push(obstacle);
+      if (game.elapsed - game.lastHeartSpawn >= getHeartSpawnInterval(game.elapsed)) {
+        game.items.push(createHeart(game.elapsed));
+        game.lastHeartSpawn = game.elapsed;
       }
-      game.obstacles = remaining;
-      game.score = Math.floor(game.elapsed / 100) + game.dodged * 25;
+
+      game.items.forEach(item => {
+        item.y += item.speed * deltaSeconds;
+        item.angle += item.spin * deltaSeconds;
+      });
+      const visibleItems = [];
+      for (const item of game.items) {
+        if (item.y > GAME_HEIGHT + item.size) {
+          if (item.type === 'bomb') game.dodged += 1;
+        } else {
+          visibleItems.push(item);
+        }
+      }
+
+      const collision = resolveFallingItemCollisions(game.player, visibleItems);
+      game.items = collision.remainingItems;
+      if (collision.heartsCollected > 0) {
+        game.heartsCollected += collision.heartsCollected;
+        setHeartsCollected(game.heartsCollected);
+      }
+      game.score = calculateScore(game.elapsed, game.dodged, game.heartsCollected);
       setScore(current => current === game.score ? current : game.score);
 
-      const collision = game.obstacles.some(obstacle => hasCollision(game.player, obstacle));
       drawScene(canvasRef.current, game, imageRef.current);
-      if (collision) {
+      if (collision.bombHit) {
         setHighScore(current => {
           const next = Math.max(current, game.score);
           try {
@@ -295,6 +327,7 @@ export default function BaldDodgeGame({ onClose }) {
         </div>
         <div className="bald-dodge-scoreboard">
           <span>점수 <strong>{score.toLocaleString()}</strong></span>
+          <span>하트 <strong>❤️ {heartsCollected}</strong></span>
           <span>최고 <strong>{highScore.toLocaleString()}</strong></span>
         </div>
         <button className="bald-dodge-close" onClick={onClose} aria-label="게임 닫기">
@@ -303,12 +336,12 @@ export default function BaldDodgeGame({ onClose }) {
       </div>
 
       <div className="bald-dodge-stage">
-        <canvas ref={canvasRef} width={GAME_WIDTH} height={GAME_HEIGHT} aria-label="장애물을 피하는 게임 화면" />
+        <canvas ref={canvasRef} width={GAME_WIDTH} height={GAME_HEIGHT} aria-label="폭탄을 피하고 하트를 모으는 게임 화면" />
         {phase === 'ready' && (
           <div className="bald-dodge-message">
             <span className="bald-dodge-message-icon">🕺</span>
             <h2>댄스 플로어를 지켜라!</h2>
-            <p>떨어지는 장애물을 피해서 오래 살아남으세요.</p>
+            <p>폭탄은 피하고 하트를 모으세요. 하트 하나당 +{HEART_SCORE}점!</p>
             <button onClick={startGame}>게임 시작 <small>SPACE</small></button>
           </div>
         )}
@@ -323,7 +356,7 @@ export default function BaldDodgeGame({ onClose }) {
       </div>
 
       <div className="bald-dodge-footer">
-        <p><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 또는 WASD로 이동 · <kbd>ESC</kbd>로 종료</p>
+        <p><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> 또는 WASD로 이동 · ❤️ +{HEART_SCORE}점 · <kbd>⌘G</kbd>/<kbd>Ctrl+G</kbd>로 종료</p>
         <div className="dodge-controls" aria-label="터치 이동 컨트롤">
           {directionButton('up', '위로 이동', ArrowUp)}
           {directionButton('left', '왼쪽으로 이동', ArrowLeft)}

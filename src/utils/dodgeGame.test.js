@@ -4,11 +4,25 @@ import test from 'node:test';
 import {
   GAME_HEIGHT,
   GAME_WIDTH,
-  createObstacle,
+  HEART_SCORE,
+  calculateScore,
+  createBomb,
+  createHeart,
+  getHeartSpawnInterval,
   getSpawnInterval,
   hasCollision,
-  movePlayer
+  isGameToggleShortcut,
+  movePlayer,
+  resolveFallingItemCollisions
 } from './dodgeGame.js';
+
+test('recognizes the game shortcut on macOS and Windows without key-repeat toggles', () => {
+  assert.equal(isGameToggleShortcut({ code: 'KeyG', metaKey: true }), true);
+  assert.equal(isGameToggleShortcut({ code: 'KeyG', ctrlKey: true }), true);
+  assert.equal(isGameToggleShortcut({ code: 'KeyG', ctrlKey: true, repeat: true }), false);
+  assert.equal(isGameToggleShortcut({ code: 'KeyG', ctrlKey: true, shiftKey: true }), false);
+  assert.equal(isGameToggleShortcut({ code: 'Escape' }), false);
+});
 
 test('moves the player with normalized diagonal speed and keeps it in bounds', () => {
   const moved = movePlayer({ x: 100, y: 100, size: 58 }, { right: true, down: true }, 1);
@@ -32,16 +46,43 @@ test('increases difficulty without dropping below the minimum spawn interval', (
   assert.equal(getSpawnInterval(0), 820);
   assert.ok(getSpawnInterval(15000) < getSpawnInterval(5000));
   assert.equal(getSpawnInterval(120000), 270);
+
+  assert.equal(getHeartSpawnInterval(0), 3200);
+  assert.ok(getHeartSpawnInterval(30000) < getHeartSpawnInterval(5000));
+  assert.equal(getHeartSpawnInterval(180000), 1800);
 });
 
-test('creates obstacles inside the playfield with increasing speed', () => {
+test('creates bombs and hearts inside the playfield', () => {
   const values = [0.5, 0.25, 0.75, 0.4, 0.6, 0.2, 0.9, 0.1];
   let index = 0;
   const random = () => values[index++ % values.length];
-  const early = createObstacle(0, random);
-  const late = createObstacle(30000, random);
+  const earlyBomb = createBomb(0, random);
+  const lateBomb = createBomb(30000, random);
+  const heart = createHeart(0, random);
 
-  assert.ok(early.x >= 0 && early.x + early.size <= GAME_WIDTH);
-  assert.equal(early.y, -early.size);
-  assert.ok(late.speed > early.speed);
+  assert.equal(earlyBomb.type, 'bomb');
+  assert.ok(earlyBomb.x >= 0 && earlyBomb.x + earlyBomb.size <= GAME_WIDTH);
+  assert.equal(earlyBomb.y, -earlyBomb.size);
+  assert.ok(lateBomb.speed > earlyBomb.speed);
+
+  assert.equal(heart.type, 'heart');
+  assert.ok(heart.x >= 0 && heart.x + heart.size <= GAME_WIDTH);
+  assert.equal(heart.y, -heart.size);
+});
+
+test('bombs end the game while collected hearts are removed and counted', () => {
+  const player = { x: 100, y: 100, size: 58 };
+  const safeBomb = { id: 'safe', type: 'bomb', x: 300, y: 100, size: 30 };
+  const bomb = { id: 'bomb', type: 'bomb', x: 110, y: 110, size: 30 };
+  const heart = { id: 'heart', type: 'heart', x: 120, y: 120, size: 28 };
+  const result = resolveFallingItemCollisions(player, [safeBomb, bomb, heart]);
+
+  assert.equal(result.bombHit, true);
+  assert.equal(result.heartsCollected, 1);
+  assert.deepEqual(result.remainingItems, [safeBomb]);
+});
+
+test('adds a fixed bonus for every collected heart', () => {
+  assert.equal(calculateScore(1250, 2, 0), 62);
+  assert.equal(calculateScore(1250, 2, 2), 62 + HEART_SCORE * 2);
 });
